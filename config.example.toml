@@ -1,0 +1,40 @@
+# y1crm 組態樣板 — 部署時複製為 config.toml 並填入實際值。
+# config.toml 含機密不進版控；本樣板進版控。
+# 覆寫優先序：內建預設 < config.toml < 環境變數 Y1CRM_<區段>_<鍵>（如 Y1CRM_STORAGE_BASE_DIR）。
+
+[storage]
+# 所有上傳檔的「基地」。移轉/換碟/換機只改這一行。
+# 建議放有冗餘/大空間的碟（如 RAID1 掛載點）。
+base_dir = "/mnt/raid1/y1crm_uploads"
+# 各類檔案的相對子目錄（相對 base_dir）；DB 只存「相對路徑」，換基地資料零改動。
+todo_attachments = "todos"
+customer_photos  = "photos"
+form_images      = "forms"
+staff_photos     = "staff"
+product_attachments = "products"
+
+[db]
+host     = "localhost"
+user     = "root"
+password = "CHANGE_ME"
+database = "crm1"
+charset  = "utf8mb4"
+
+[ocr]
+ollama_url = "http://127.0.0.1:11434"
+model      = "qwen3-vl:32b-instruct"
+
+[server]
+host = "0.0.0.0"
+port = 8004
+
+[line]
+channel_id           = "CHANGE_ME"
+channel_secret       = "CHANGE_ME"
+channel_access_token = ""   # 未設＝開發模式：訊息只記 log 不真發
+liff_id              = ""
+public_base_url      = "https://example.com"
+
+[board]
+# 店面狀態看板（免登入電視牆）：/board?k=<key>；留空＝看板整組停用
+key = ""

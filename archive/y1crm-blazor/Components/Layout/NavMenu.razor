@@ -1,0 +1,50 @@
+@inject y1crm.Services.AppSettingsService Settings
+
+<div class="nav-bar">
+    <a class="brand" href="">@brand</a>
+
+    <AuthorizeView>
+        <Authorized>
+            <nav class="nav-links">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <RadzenIcon Icon="calendar_month" /><span>行事曆</span>
+                </NavLink>
+                <NavLink class="nav-link" href="customers">
+                    <RadzenIcon Icon="group" /><span>客戶資料</span>
+                </NavLink>
+            </nav>
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="nav-right">
+        <form method="post" action="/toggle-theme">
+            <button type="submit" class="ghost-btn" title="切換明/暗色調">
+                <RadzenIcon Icon="contrast" /><span>明暗</span>
+            </button>
+        </form>
+
+        <AuthorizeView>
+            <Authorized>
+                <span class="user-name">
+                    <RadzenIcon Icon="person" />@(context.User.FindFirst("realname")?.Value ?? context.User.Identity?.Name)
+                </span>
+                <form method="post" action="/logout">
+                    <button type="submit" class="ghost-btn">
+                        <RadzenIcon Icon="logout" /><span>登出</span>
+                    </button>
+                </form>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+</div>
+
+@code {
+    private string brand = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var company = await Settings.GetCompanyNameAsync();
+        var branch = await Settings.GetBranchNameAsync();
+        brand = string.IsNullOrEmpty(branch) ? company : $"{company}‧{branch}";
+    }
+}

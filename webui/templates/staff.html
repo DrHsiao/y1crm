@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}人員管理 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 人員管理（users；僅 admin。密碼不可看、只可重設）────── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <h3 style="flex:1;">人員管理<span class="lh" id="staff-count"></span></h3>
+      <button type="button" class="btn sm" onclick="openStaffModal()">＋ 新增人員</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:4rem;">照片</th><th>帳號</th><th>姓名</th><th>權限</th>
+          <th>建立時間</th><th style="width:9rem;">操作</th>
+        </tr></thead>
+        <tbody id="staff-body"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:.8rem;">
+      密碼以雜湊儲存、無法查看；如需協助同仁換密碼，請在編輯視窗直接設定新密碼。
+    </p>
+  </div>
+  <input type="file" id="staff-photo-file" accept="image/*" class="hidden">
+{% endblock %}
+{% block scripts %}<script src="/static/js/staff.js?v={{ v }}"></script>{% endblock %}

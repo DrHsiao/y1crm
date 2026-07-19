@@ -1,0 +1,166 @@
+@page "/customers/{Id:long}"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using y1crm.Models
+@inject IDbContextFactory<crm1Context> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>客戶資料</PageTitle>
+
+@if (notFound)
+{
+    <div class="alert alert-danger fs-5">找不到這筆客戶資料(可能已被移除)。</div>
+    <button class="btn btn-outline-primary btn-lg" @onclick="BackToSearch">回客戶查詢</button>
+}
+else if (model is not null)
+{
+    <div class="d-flex align-items-baseline gap-3 flex-wrap mb-2">
+        <h3 class="m-0">@headerName</h3>
+        <span class="code-badge">@headerCode</span>
+    </div>
+
+    @if (Created == "1")
+    {
+        <div class="alert alert-success fs-6">建檔成功!可以繼續補齊其餘資料,完成後按「儲存」。</div>
+    }
+
+    <CustomerFields Model="model" />
+
+    @if (status is { } s)
+    {
+        <div class="alert alert-@s.Css mt-4 mb-0 fs-6">@s.Text</div>
+    }
+
+    <div class="d-flex gap-3 mt-4 flex-wrap action-row">
+        <button class="btn btn-primary btn-lg px-4" @onclick="SaveAsync" disabled="@busy">
+            <RadzenIcon Icon="save" /> 儲存
+        </button>
+        <button class="btn btn-outline-secondary btn-lg px-4" @onclick="BackToSearch" disabled="@busy">
+            <RadzenIcon Icon="arrow_back" /> 回客戶查詢
+        </button>
+    </div>
+
+    <p class="meta mt-3 mb-0">
+        建檔時間:@createdAt.ToString("yyyy/MM/dd HH:mm")‧最後更新:@updatedAt.ToString("yyyy/MM/dd HH:mm")@(string.IsNullOrEmpty(updatedBy) ? "" : $"(修改者:{updatedBy})")
+    </p>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromQuery(Name = "created")]
+    public string? Created { get; set; }
+
+    private long loadedId = -1;
+    private CustomerFormModel? model;
+    private bool notFound;
+    private string headerName = "";
+    private string headerCode = "";
+    private DateTime createdAt;
+    private DateTime updatedAt;
+    private string? updatedBy;
+    private (string Text, string Css)? status;
+    private bool busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedId == Id)
+        {
+            return;
+        }
+
+        loadedId = Id;
+        status = null;
+        notFound = false;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == (ulong)Id);
+        if (entity is null)
+        {
+            notFound = true;
+            model = null;
+            return;
+        }
+
+        ApplyHeader(entity);
+        model = CustomerFormModel.FromEntity(entity);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (model is null)
+        {
+            return;
+        }
+
+        busy = true;
+        status = null;
+        try
+        {
+            if (CustomerFormModel.Clean(model.Name) is null)
+            {
+                status = ("姓名不可空白。", "danger");
+                return;
+            }
+
+            if (CustomerFormModel.Clean(model.CustomerCode) is null)
+            {
+                status = ("客戶編號不可空白。", "danger");
+                return;
+            }
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.Customers.FirstOrDefaultAsync(c => c.Id == (ulong)Id);
+            if (entity is null)
+            {
+                notFound = true;
+                return;
+            }
+
+            model.ApplyTo(entity);
+            entity.UpdatedBy = await GetCurrentUserNameAsync();
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                status = (CustomerFormModel.SaveErrorMessage(ex), "danger");
+                return;
+            }
+
+            ApplyHeader(entity);
+            status = ("已儲存。", "success");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void ApplyHeader(Customer entity)
+    {
+        headerName = entity.Name;
+        headerCode = entity.CustomerCode;
+        createdAt = entity.CreatedAt;
+        updatedAt = entity.UpdatedAt;
+        updatedBy = entity.UpdatedBy;
+    }
+
+    private async Task<string?> GetCurrentUserNameAsync()
+    {
+        if (AuthState is null)
+        {
+            return null;
+        }
+
+        var user = (await AuthState).User;
+        return user.FindFirst("realname")?.Value ?? user.Identity?.Name;
+    }
+
+    private void BackToSearch() => Nav.NavigateTo("customers");
+}

@@ -1,0 +1,13 @@
+.code-badge {
+    padding: .25rem .7rem;
+    border-radius: var(--rz-border-radius, 4px);
+    background-color: color-mix(in srgb, var(--rz-primary) 14%, transparent);
+    color: var(--rz-primary);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.meta {
+    color: var(--rz-text-secondary-color);
+    font-size: .95rem;
+}

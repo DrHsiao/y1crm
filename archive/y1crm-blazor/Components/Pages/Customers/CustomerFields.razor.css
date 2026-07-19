@@ -1,0 +1,77 @@
+/* 一行一欄位的直式表單,限制寬度避免輸入框在平板橫向被拉太寬 */
+.customer-fields {
+    max-width: 42rem;
+}
+
+.field {
+    margin-bottom: 1.15rem;
+}
+
+.form-label {
+    font-size: 1.05rem;
+    margin-bottom: .35rem;
+    font-weight: 500;
+}
+
+.section-title {
+    margin: 1.9rem 0 1rem;
+    padding-left: .6rem;
+    border-left: 4px solid var(--rz-primary);
+    font-weight: 600;
+    font-size: 1.15rem;
+    color: var(--rz-text-title-color);
+}
+
+.customer-fields > .section-title:first-child {
+    margin-top: .25rem;
+}
+
+.section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: 1.9rem;
+    margin-bottom: 1rem;
+}
+
+    .section-title-row .section-title {
+        margin: 0;
+    }
+
+.copy-btn {
+    min-height: 2.75rem;
+}
+
+.req {
+    color: var(--rz-danger);
+}
+
+.label-hint {
+    margin-left: .25rem;
+    font-size: .85em;
+    font-weight: 400;
+    color: var(--rz-text-secondary-color);
+}
+
+/* 三選一的大按鈕群(性別/同意書/補助),取代下拉選單,平板點選更快 */
+.seg .btn {
+    min-width: 6rem;
+    min-height: 3rem;
+    font-size: 1.05rem;
+}
+
+/* 軟性檢核提示(不擋儲存) */
+.soft-warn {
+    margin-top: .35rem;
+    font-size: .95rem;
+    color: var(--rz-warning, #b45309);
+}
+
+/* 欄位輔助資訊(民國年/年齡換算等) */
+.field-info {
+    margin-top: .35rem;
+    font-size: .95rem;
+    color: var(--rz-text-secondary-color);
+}

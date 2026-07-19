@@ -1,0 +1,91 @@
+.nav-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .5rem 1.25rem;
+    width: 100%;
+    min-height: 3.5rem;
+    padding: .35rem 1.25rem;
+}
+
+.brand {
+    color: inherit;
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.brand:hover {
+    color: inherit;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+}
+
+    .nav-links ::deep .nav-link {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        min-height: 2.75rem;
+        padding: 0 1.1rem;
+        border-radius: var(--rz-border-radius, 4px);
+        color: inherit;
+        opacity: .82;
+        text-decoration: none;
+        font-size: 1.05rem;
+    }
+
+    .nav-links ::deep .nav-link:hover {
+        opacity: 1;
+        background-color: rgba(255, 255, 255, 0.12);
+        color: inherit;
+    }
+
+    .nav-links ::deep a.active {
+        opacity: 1;
+        background-color: rgba(255, 255, 255, 0.22);
+        font-weight: 600;
+    }
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-left: auto;
+}
+
+.user-name {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    opacity: .92;
+}
+
+.ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: var(--rz-border-radius, 4px);
+    font-size: 1rem;
+    white-space: nowrap;
+}
+
+.ghost-btn:hover {
+    background-color: rgba(255, 255, 255, .12);
+}
+
+/* Radzen 圖示在導覽列中的大小 */
+.nav-bar ::deep .rzi {
+    font-size: 1.3rem;
+}

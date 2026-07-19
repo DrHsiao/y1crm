@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>線上預約 — 睿聲助聽器</title>
+<style>
+  /* 公開頁自包含樣式（/static 不對外開放）；配色沿用企業紅 */
+  :root { --brand:#c8102e; --brand-hover:#a50d26; --bg:#f4f5f7; --card:#fff;
+          --text:#20242b; --muted:#6a7280; --line:#e2e5ea; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:16px/1.6 "Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif; }
+  .wrap { max-width:30rem; margin:0 auto; padding:1.2rem 1rem 3rem; }
+  .head { text-align:center; margin:.8rem 0 1.1rem; }
+  .head h2 { margin:.2rem 0; color:var(--brand); }
+  .head .sub { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          border-top:4px solid var(--brand); padding:1.2rem 1.1rem;
+          box-shadow:0 1px 3px rgba(16,24,40,.08); }
+  label { display:block; font-weight:600; margin:.9rem 0 .25rem; }
+  label .opt { font-weight:400; color:var(--muted); font-size:.85rem; }
+  input, select, textarea { width:100%; padding:.7rem .8rem; font-size:1.05rem;
+          border:1px solid var(--brand); border-radius:8px; background:#fff; color:var(--text); }
+  .row { display:flex; gap:.7rem; } .row > div { flex:1; }
+  button { width:100%; margin-top:1.3rem; padding:.9rem; font-size:1.1rem; font-weight:700;
+           color:#fff; background:var(--brand); border:none; border-radius:8px; cursor:pointer; }
+  button:disabled { opacity:.6; }
+  .err { color:#b91c1c; background:#fee2e2; border-radius:8px; padding:.6rem .8rem;
+         margin-top:.9rem; display:none; }
+  .done { text-align:center; padding:2.2rem 0; display:none; }
+  .done .big { font-size:3rem; }
+  .expired { text-align:center; padding:2rem 0; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h2>線上預約</h2>
+    <div class="sub">睿聲助聽器-中正門市</div>
+  </div>
+
+  {% if expired %}
+  <div class="card"><div class="expired">
+    這個預約連結已逾期或已使用。<br><br>
+    請回到 LINE 對話，再輸入一次「<b>預約</b>」取得新連結。
+  </div></div>
+  {% else %}
+  <div class="card">
+    <form id="f" onsubmit="return false;">
+      <label>稱呼 <span class="opt">（怎麼稱呼您）</span></label>
+      <input id="contact_name" maxlength="50" value="{{ name }}" placeholder="例：王小姐">
+      <label>聯絡電話</label>
+      <input id="phone" maxlength="20" inputmode="tel" value="{{ phone }}" placeholder="例：0912345678">
+      <div class="row">
+        <div>
+          <label>日期 <span class="opt">（兩週內）</span></label>
+          <select id="req_date">
+            {% for d in dates %}<option value="{{ d.v }}">{{ d.label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>時間</label>
+          <select id="req_hour">
+            {% for h in hours %}<option value="{{ h }}">{{ "%02d:00"|format(h) }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>需求說明 <span class="opt">（選填）</span></label>
+      <textarea id="note" rows="3" maxlength="500" placeholder="例：助聽器保養、想試聽新機、更換電池…"></textarea>
+      <div class="err" id="err"></div>
+      <button id="go" onclick="submitBooking()">送出預約</button>
+    </form>
+    <div class="done" id="done">
+      <div class="big">✅</div>
+      <h3>已收到您的預約</h3>
+      <p>門市人員將盡快與您電話確認。<br>LINE 也會收到一則確認訊息，可直接關閉本頁。</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+<script>
+"use strict";
+const TOKEN = "{{ token }}";
+async function submitBooking() {
+  const err = document.getElementById("err"), btn = document.getElementById("go");
+  err.style.display = "none";
+  const body = {
+    token: TOKEN,
+    contact_name: document.getElementById("contact_name").value.trim(),
+    phone: document.getElementById("phone").value.trim(),
+    req_date: document.getElementById("req_date").value,
+    req_hour: document.getElementById("req_hour").value,
+    note: document.getElementById("note").value.trim(),
+  };
+  if (!body.contact_name) { err.textContent = "請填寫稱呼。"; err.style.display = "block"; return; }
+  if (!body.phone) { err.textContent = "請填寫聯絡電話。"; err.style.display = "block"; return; }
+  btn.disabled = true; btn.textContent = "送出中…";
+  try {
+    const res = await fetch("/lp/booking/submit", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+    document.getElementById("f").style.display = "none";
+    document.getElementById("done").style.display = "block";
+  } catch (e) {
+    err.textContent = e.message; err.style.display = "block";
+    btn.disabled = false; btn.textContent = "送出預約";
+  }
+}
+</script>
+</body>
+</html>

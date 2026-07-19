@@ -1,0 +1,22 @@
+.hint {
+    color: var(--rz-text-secondary-color);
+    font-size: 1rem;
+}
+
+.dup-panel a {
+    font-weight: 600;
+}
+
+.dup-panel .dup-meta {
+    margin-left: .5rem;
+    opacity: .85;
+}
+
+.results ::deep td,
+.results ::deep th {
+    font-size: 1.02rem;
+}
+
+.results ::deep .rz-data-row {
+    cursor: pointer;
+}

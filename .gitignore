@@ -1,0 +1,17 @@
+# 機密與本機狀態（config.example.toml 為樣板進版控）
+config.toml
+.session_secret
+*.log
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Claude Code 本機設定
+.claude/settings.local.json
+
+# 舊 Blazor 留底：只保留原始碼，IDE 快取/建置產物不進版控
+archive/**/.vs/
+archive/**/bin/
+archive/**/obj/

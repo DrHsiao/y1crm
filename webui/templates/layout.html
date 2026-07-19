@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}y1crm{% endblock %}</title>
+<script>try{var t=localStorage.getItem("y1crm-theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="/static/css/app.css?v={{ v }}">
+</head>
+<body>
+
+<header id="topbar">
+  <button class="nav-toggle" id="nav-toggle" type="button" aria-label="開關選單" aria-expanded="false" aria-controls="topbar">
+    <span></span><span></span><span></span>
+  </button>
+  <!-- 品牌 logo＝行事曆（首頁）入口；行事曆不佔選單位 -->
+  <a class="brand-link" href="/calendar" title="行事曆（首頁）">
+    <img class="brand-mark" id="brand-mark" src="/imagesLogoS.png" alt="企業圖示">
+  </a>
+  <div class="brand-text">
+    <h1 id="hdr-company">y1crm</h1>
+    <span class="sub" id="hdr-branch"></span>
+  </div>
+  <!-- 導覽選單：menus 資料表驅動（多層），initHeader() 依 /api/me 的 nav 渲染 -->
+  <nav class="topnav" id="topnav"></nav>
+  <!-- 使用者頭像（Google 式）：點開浮出使用者選單 -->
+  <button class="avatar-btn" id="avatar-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="帳號選單">
+    <img id="avatar-img" class="hidden" alt="">
+    <span id="avatar-initial" class="avatar-initial"></span>
+  </button>
+  <div id="user-menu" class="user-menu hidden" role="menu">
+    <div class="um-head">
+      <span class="um-ava">
+        <img id="um-img" class="hidden" alt="">
+        <span id="um-initial" class="avatar-initial"></span>
+      </span>
+      <div>
+        <div class="um-name" id="um-name"></div>
+        <div class="um-level" id="um-level"></div>
+      </div>
+    </div>
+    <button class="um-item" id="theme-toggle" type="button"></button>
+    <button class="um-item" type="button" onclick="logout()"><span class="um-ico">🚪</span>登出</button>
+  </div>
+</header>
+<!-- 手機側滑抽屜的背景遮罩（點擊即關閉；桌機不顯示）-->
+<div id="nav-backdrop" class="nav-backdrop" aria-hidden="true"></div>
+
+<main>
+{% block content %}{% endblock %}
+
+  <!-- 訊息浮層（跨頁共用） -->
+  <div id="toast" class="banner hidden" role="alert">
+    <span id="toast-text"></span>
+    <button type="button" class="toast-x" onclick="hideStatus()" title="關閉">✕</button>
+  </div>
+
+  <!-- 對話框（單一 overlay，關閉即清空） -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="modal-title"></h3>
+        <button class="btn ghost sm" type="button" onclick="closeModal()">✕</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+</main>
+
+<script src="/static/js/common.js?v={{ v }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

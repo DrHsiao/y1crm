@@ -1,0 +1,138 @@
+@page "/"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using y1crm.Models
+@inject IDbContextFactory<crm1Context> DbFactory
+@inject DialogService DialogService
+
+<PageTitle>行事曆</PageTitle>
+
+<div class="calendar-page">
+    <div class="legend-row">
+        @foreach (var type in ReminderTypes.Values)
+        {
+            <span class="legend-chip"><span class="legend-dot" style="background:@type.Color"></span>@type.Label</span>
+        }
+    </div>
+
+    <RadzenScheduler @ref="scheduler" TItem="ScheduleItem" Data="items"
+                     StartProperty="@nameof(ScheduleItem.Start)" EndProperty="@nameof(ScheduleItem.End)"
+                     TextProperty="@nameof(ScheduleItem.Title)"
+                     SelectedIndex="2" TodayText="今天"
+                     Style="height: calc(100dvh - 11rem); min-height: 480px;"
+                     LoadData="OnLoadData" AppointmentRender="OnAppointmentRender"
+                     AppointmentSelect="OnAppointmentSelect">
+        <RadzenDayView Text="日" />
+        <RadzenWeekView Text="週" />
+        <RadzenMonthView Text="月" MoreText="還有 {0} 筆" />
+    </RadzenScheduler>
+</div>
+
+<RadzenComponents />
+
+@code {
+    private RadzenScheduler<ScheduleItem>? scheduler;
+    private IList<ScheduleItem> items = new List<ScheduleItem>();
+
+    // reminder_type enum 值 → 顯示文字與色塊
+    private static readonly Dictionary<string, (string Label, string Color)> ReminderTypes = new()
+    {
+        ["follow_up"] = ("回診", "#1d6fd8"),
+        ["maintenance"] = ("保養", "#188554"),
+        ["battery_replacement"] = ("電池更換", "#c05600"),
+        ["tuning"] = ("調機", "#6f42c1"),
+        ["other"] = ("其他", "#5c636a"),
+    };
+
+    private async Task OnLoadData(SchedulerLoadDataEventArgs args)
+    {
+        var start = DateOnly.FromDateTime(args.Start);
+        var end = DateOnly.FromDateTime(args.End);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var rows = await db.FollowUpReminders
+            .Where(r => r.ScheduledDate >= start && r.ScheduledDate < end && r.Status != "cancelled")
+            .Select(r => new
+            {
+                r.Id,
+                r.ScheduledDate,
+                r.ReminderType,
+                r.Status,
+                r.Notes,
+                CustomerName = r.Customer.Name,
+                Phone = r.Customer.PhoneMobile,
+            })
+            .ToListAsync();
+
+        items = rows.Select(r =>
+        {
+            var type = ReminderTypes.GetValueOrDefault(r.ReminderType, ("其他", "#5c636a"));
+            return new ScheduleItem
+            {
+                Id = r.Id,
+                Start = r.ScheduledDate.ToDateTime(TimeOnly.MinValue),
+                End = r.ScheduledDate.ToDateTime(TimeOnly.MinValue).AddDays(1),
+                Title = $"{type.Item1}‧{r.CustomerName}",
+                TypeLabel = type.Item1,
+                Color = type.Item2,
+                CustomerName = r.CustomerName,
+                Phone = r.Phone,
+                Notes = r.Notes,
+                Done = r.Status == "completed",
+            };
+        }).ToList();
+    }
+
+    private void OnAppointmentRender(SchedulerAppointmentRenderEventArgs<ScheduleItem> args)
+    {
+        if (args.Data is not ScheduleItem item)
+        {
+            return;
+        }
+
+        var style = $"background: {item.Color};";
+        if (item.Done)
+        {
+            style += " opacity: .5; text-decoration: line-through;";
+        }
+        args.Attributes["style"] = style;
+    }
+
+    private async Task OnAppointmentSelect(SchedulerAppointmentSelectEventArgs<ScheduleItem> args)
+    {
+        if (args.Data is not ScheduleItem item)
+        {
+            return;
+        }
+
+        await DialogService.OpenAsync($"{item.TypeLabel}提醒", ds =>
+            @<div class="fs-5 lh-lg">
+                <div><strong>客戶:</strong>@item.CustomerName</div>
+                <div><strong>電話:</strong>@(string.IsNullOrEmpty(item.Phone) ? "—" : item.Phone)</div>
+                <div><strong>日期:</strong>@item.Start.ToString("yyyy/MM/dd (ddd)")</div>
+                <div><strong>狀態:</strong>@(item.Done ? "已完成" : "待處理")</div>
+                @if (!string.IsNullOrEmpty(item.Notes))
+                {
+                    <div><strong>備註:</strong>@item.Notes</div>
+                }
+                <div class="text-end mt-3">
+                    <button class="btn btn-outline-secondary btn-lg px-4" @onclick="() => ds.Close()">關閉</button>
+                </div>
+            </div>,
+            new DialogOptions { Width = "min(28rem, 92vw)", CloseDialogOnOverlayClick = true });
+    }
+
+    public class ScheduleItem
+    {
+        public ulong Id { get; set; }
+        public DateTime Start { get; set; }
+        public DateTime End { get; set; }
+        public string Title { get; set; } = "";
+        public string TypeLabel { get; set; } = "";
+        public string Color { get; set; } = "";
+        public string CustomerName { get; set; } = "";
+        public string? Phone { get; set; }
+        public string? Notes { get; set; }
+        public bool Done { get; set; }
+    }
+}

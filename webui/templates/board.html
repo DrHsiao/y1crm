@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>店面看板 — y1crm</title>
+<link rel="stylesheet" href="/static/css/board.css?v={{ v }}">
+</head>
+<body>
+<!-- 店面狀態看板（電視牆）：免登入（資料端點驗 URL 金鑰）、無觸控、30 秒輪詢。
+     個資一律由伺服器遮罩後才下發（姓名○、電話尾三碼、無金額）。 -->
+<div id="topbar">
+  <div id="clock">--:--</div><div id="clock-s">--</div>
+  <div id="date-block">
+    <div id="date-roc">—</div>
+    <div id="date-wd">—</div>
+  </div>
+  <div id="marquee"><div id="marq-inner"></div></div>
+  <div id="live" title="連線狀態"></div>
+</div>
+
+<div id="grid">
+  <section id="left">
+    <div class="panel grow">
+      <h2>📋 今日行程 <span class="cnt" id="sched-cnt"></span></h2>
+      <div class="roll" id="sched-list"></div>
+    </div>
+    <div class="panel" id="p-month">
+      <h2 id="month-title">行事曆</h2>
+      <div id="month-grid"></div>
+    </div>
+  </section>
+  <section id="right">
+    <div class="panel"><h2>💬 LINE 新預約 <span class="cnt" id="line-cnt"></span></h2>
+      <div class="roll" id="line-list"></div></div>
+    <div class="panel"><h2>✅ 今日待辦・逾期</h2><div class="roll" id="todo-list"></div></div>
+    <div class="panel"><h2>🎂 壽星（7 天內）</h2><div class="roll" id="bday-list"></div></div>
+    <div class="panel"><h2>🛡️ 保固即將到期</h2><div class="roll" id="warr-list"></div></div>
+  </section>
+</div>
+
+<div id="err" class="hidden"></div>
+<script src="/static/js/board.js?v={{ v }}"></script>
+</body>
+</html>

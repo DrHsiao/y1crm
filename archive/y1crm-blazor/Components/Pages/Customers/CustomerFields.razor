@@ -1,0 +1,315 @@
+@using System.Text.RegularExpressions
+
+<div class="customer-fields">
+
+    <h5 class="section-title">基本資料</h5>
+
+    <div class="field">
+        <label class="form-label" for="cf-code">客戶編號<span class="label-hint">(留空自動產生,如 C20260711-001)</span></label>
+        <input id="cf-code" class="form-control form-control-lg" @bind="Model.CustomerCode"
+               maxlength="20" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-name">姓名 <span class="req">*</span></label>
+        <input id="cf-name" class="form-control form-control-lg" @bind="Model.Name" @onblur="HandleKeyBlur"
+               maxlength="50" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-nid">身分證字號<span class="label-hint">(個資欄位,可留空)</span></label>
+        <input id="cf-nid" class="form-control form-control-lg" @bind="Model.NationalId" @onblur="HandleKeyBlur"
+               maxlength="10" placeholder="A123456789" autocapitalize="characters" autocomplete="off" spellcheck="false" />
+        @if (NationalIdWarning is { } nw)
+        {
+            <div class="soft-warn">@nw</div>
+        }
+    </div>
+
+    <div class="field">
+        <label class="form-label">性別</label>
+        <div class="btn-group seg" role="group" aria-label="性別">
+            <button type="button" class="btn @SegCss(Model.Gender == "")" @onclick='() => Model.Gender = ""'>—</button>
+            <button type="button" class="btn @SegCss(Model.Gender == "M")" @onclick='() => Model.Gender = "M"'>男</button>
+            <button type="button" class="btn @SegCss(Model.Gender == "F")" @onclick='() => Model.Gender = "F"'>女</button>
+        </div>
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-birth">出生年月日<span class="label-hint">(西元)</span></label>
+        <input id="cf-birth" type="date" class="form-control form-control-lg" @bind="Model.BirthDate" />
+        @if (BirthInfo is { } bi)
+        {
+            <div class="field-info">@bi</div>
+        }
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-reg">建檔日期<span class="label-hint">(留空=建檔當天)</span></label>
+        <input id="cf-reg" type="date" class="form-control form-control-lg" @bind="Model.RegistrationDate" />
+    </div>
+
+    <h5 class="section-title">聯絡方式</h5>
+
+    <div class="field">
+        <label class="form-label" for="cf-mobile">通訊電話(個人手機)</label>
+        <input id="cf-mobile" type="tel" inputmode="tel" class="form-control form-control-lg"
+               @bind="Model.PhoneMobile" @onblur="HandleKeyBlur" maxlength="20" placeholder="0912345678" autocomplete="off" />
+        @if (MobileWarning is { } mw)
+        {
+            <div class="soft-warn">@mw</div>
+        }
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-home">通訊電話(市話)</label>
+        <input id="cf-home" type="tel" inputmode="tel" class="form-control form-control-lg"
+               @bind="Model.PhoneHome" maxlength="20" placeholder="02-12345678" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-email">電子信箱</label>
+        <input id="cf-email" type="email" class="form-control form-control-lg" @bind="Model.Email"
+               maxlength="100" placeholder="name@example.com" autocapitalize="none" spellcheck="false" autocomplete="off" />
+        @if (EmailWarning is { } ew)
+        {
+            <div class="soft-warn">@ew</div>
+        }
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-cname">聯絡人姓名<span class="label-hint">(家屬/照護者)</span></label>
+        <input id="cf-cname" class="form-control form-control-lg" @bind="Model.ContactName" maxlength="50" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-cphone">聯絡人電話</label>
+        <input id="cf-cphone" type="tel" inputmode="tel" class="form-control form-control-lg"
+               @bind="Model.ContactPhone" maxlength="20" autocomplete="off" />
+    </div>
+
+    <h5 class="section-title">戶籍地址</h5>
+
+    <div class="field">
+        <label class="form-label" for="cf-hcity">縣市</label>
+        <input id="cf-hcity" class="form-control form-control-lg" @bind="Model.HouseholdCity"
+               list="tw-cities" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-hdist">鄉鎮市區</label>
+        <input id="cf-hdist" class="form-control form-control-lg" @bind="Model.HouseholdDistrict" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-hvill">村里</label>
+        <input id="cf-hvill" class="form-control form-control-lg" @bind="Model.HouseholdVillage" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-hdetail">路街/段/巷/弄/號/樓</label>
+        <input id="cf-hdetail" class="form-control form-control-lg" @bind="Model.HouseholdDetail" maxlength="100" autocomplete="off" />
+    </div>
+
+    <div class="section-title-row">
+        <h5 class="section-title">通訊地址</h5>
+        <button type="button" class="btn btn-outline-secondary copy-btn" @onclick="CopyHouseholdToMailing">同戶籍地址</button>
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-mcity">縣市</label>
+        <input id="cf-mcity" class="form-control form-control-lg" @bind="Model.MailingCity"
+               list="tw-cities" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-mdist">鄉鎮市區</label>
+        <input id="cf-mdist" class="form-control form-control-lg" @bind="Model.MailingDistrict" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-mvill">村里</label>
+        <input id="cf-mvill" class="form-control form-control-lg" @bind="Model.MailingVillage" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-mdetail">路街/段/巷/弄/號/樓</label>
+        <input id="cf-mdetail" class="form-control form-control-lg" @bind="Model.MailingDetail" maxlength="100" autocomplete="off" />
+    </div>
+
+    <h5 class="section-title">其他</h5>
+
+    <div class="field">
+        <label class="form-label">個資使用同意書</label>
+        <div class="btn-group seg" role="group" aria-label="個資使用同意書">
+            <button type="button" class="btn @SegCss(Model.ConsentSel == "")" @onclick='() => SetConsent("")'>—</button>
+            <button type="button" class="btn @SegCss(Model.ConsentSel == "y")" @onclick='() => SetConsent("y")'>已簽署</button>
+            <button type="button" class="btn @SegCss(Model.ConsentSel == "n")" @onclick='() => SetConsent("n")'>未簽署</button>
+        </div>
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-consent-date">同意書簽署日期<span class="label-hint">(選「已簽署」時自動帶今天,可修改)</span></label>
+        <input id="cf-consent-date" type="date" class="form-control form-control-lg" @bind="Model.ConsentDate" />
+    </div>
+
+    <div class="field">
+        <label class="form-label">申請補助<span class="label-hint">(政府助聽器補助)</span></label>
+        <div class="btn-group seg" role="group" aria-label="申請補助">
+            <button type="button" class="btn @SegCss(Model.SubsidySel == "")" @onclick='() => Model.SubsidySel = ""'>—</button>
+            <button type="button" class="btn @SegCss(Model.SubsidySel == "y")" @onclick='() => Model.SubsidySel = "y"'>是</button>
+            <button type="button" class="btn @SegCss(Model.SubsidySel == "n")" @onclick='() => Model.SubsidySel = "n"'>否</button>
+        </div>
+    </div>
+
+    <div class="field">
+        <label class="form-label" for="cf-notes">備註</label>
+        <textarea id="cf-notes" class="form-control form-control-lg" rows="4" @bind="Model.Notes"></textarea>
+    </div>
+
+    <datalist id="tw-cities">
+        <option value="臺北市" /><option value="新北市" /><option value="桃園市" /><option value="臺中市" />
+        <option value="臺南市" /><option value="高雄市" /><option value="基隆市" /><option value="新竹市" />
+        <option value="嘉義市" /><option value="新竹縣" /><option value="苗栗縣" /><option value="彰化縣" />
+        <option value="南投縣" /><option value="雲林縣" /><option value="嘉義縣" /><option value="屏東縣" />
+        <option value="宜蘭縣" /><option value="花蓮縣" /><option value="臺東縣" /><option value="澎湖縣" />
+        <option value="金門縣" /><option value="連江縣" />
+    </datalist>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public CustomerFormModel Model { get; set; } = default!;
+
+    /// <summary>姓名/手機/身分證欄位失焦時觸發(供輸入頁做重複客戶檢查)。</summary>
+    [Parameter]
+    public EventCallback OnKeyFieldBlur { get; set; }
+
+    private Task HandleKeyBlur() => OnKeyFieldBlur.InvokeAsync();
+
+    private static string SegCss(bool selected) => selected ? "btn-primary" : "btn-outline-secondary";
+
+    private void SetConsent(string value)
+    {
+        Model.ConsentSel = value;
+        if (value == "y" && Model.ConsentDate is null)
+        {
+            Model.ConsentDate = DateOnly.FromDateTime(DateTime.Today);
+        }
+    }
+
+    private void CopyHouseholdToMailing()
+    {
+        Model.MailingCity = Model.HouseholdCity;
+        Model.MailingDistrict = Model.HouseholdDistrict;
+        Model.MailingVillage = Model.HouseholdVillage;
+        Model.MailingDetail = Model.HouseholdDetail;
+    }
+
+    // ---- 出生年月日輔助顯示:民國年 + 年齡 ----
+
+    private string? BirthInfo
+    {
+        get
+        {
+            if (Model.BirthDate is not { } b)
+            {
+                return null;
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var age = today.Year - b.Year;
+            if (b > today.AddYears(-age))
+            {
+                age--;
+            }
+
+            return $"民國 {b.Year - 1911} 年‧現年 {age} 歲";
+        }
+    }
+
+    // ---- 軟性檢核:只提醒、不擋存檔 ----
+
+    private string? NationalIdWarning
+    {
+        get
+        {
+            var id = (Model.NationalId ?? "").Trim().ToUpperInvariant();
+            if (id.Length == 0)
+            {
+                return null;
+            }
+
+            if (!Regex.IsMatch(id, "^[A-Z][1289][0-9]{8}$"))
+            {
+                return "格式不符:應為 1 個大寫字母 + 9 碼數字(新式居留證同格式)。仍可儲存。";
+            }
+
+            if (!ChecksumValid(id))
+            {
+                return "檢查碼不正確,請再核對一次。仍可儲存。";
+            }
+
+            // 第 2 碼與性別交叉檢查(1/8=男、2/9=女)
+            var idMale = id[1] is '1' or '8';
+            if (Model.Gender == "M" && !idMale)
+            {
+                return "身分證第 2 碼顯示為女性,與「性別:男」不一致。";
+            }
+
+            if (Model.Gender == "F" && idMale)
+            {
+                return "身分證第 2 碼顯示為男性,與「性別:女」不一致。";
+            }
+
+            return null;
+        }
+    }
+
+    private static readonly int[] LetterValues =
+    {
+        10, 11, 12, 13, 14, 15, 16, 17, 34, 18, 19, 20, 21,
+        22, 35, 23, 24, 25, 26, 27, 28, 29, 32, 30, 31, 33,
+    };
+
+    private static bool ChecksumValid(string id)
+    {
+        var letter = LetterValues[id[0] - 'A'];
+        var sum = letter / 10 + letter % 10 * 9;
+        int[] weights = { 8, 7, 6, 5, 4, 3, 2, 1, 1 };
+        for (var i = 0; i < 9; i++)
+        {
+            sum += (id[i + 1] - '0') * weights[i];
+        }
+
+        return sum % 10 == 0;
+    }
+
+    private string? MobileWarning
+    {
+        get
+        {
+            var m = (Model.PhoneMobile ?? "").Trim();
+            if (m.Length == 0 || Regex.IsMatch(m.Replace("-", ""), @"^09\d{8}$"))
+            {
+                return null;
+            }
+
+            return "台灣手機通常是 09 開頭共 10 碼,請確認。仍可儲存(市話請填市話欄)。";
+        }
+    }
+
+    private string? EmailWarning
+    {
+        get
+        {
+            var e = (Model.Email ?? "").Trim();
+            if (e.Length == 0 || Regex.IsMatch(e, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            {
+                return null;
+            }
+
+            return "Email 格式看起來不完整,請確認。仍可儲存。";
+        }
+    }
+}

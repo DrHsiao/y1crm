@@ -1,0 +1,118 @@
+{% extends "layout.html" %}
+{% block title %}交易紀錄 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 交易建檔／編輯（選單權限 purchases：admin/manager/sales）───── -->
+  <div id="view-purchases">
+    <div class="card">
+      <div class="section-row">
+        <h3 style="flex:1;" id="pur-form-title">新增交易</h3>
+        <span class="hint" id="pur-meta"></span>
+      </div>
+      <div class="form-grid">
+        <div class="field wide">
+          <label>客戶<span class="req">＊</span></label>
+          <div class="input-row">
+            <input id="pu-customer" readonly placeholder="尚未選擇客戶" autocomplete="off">
+            <button type="button" class="btn outline" onclick="openCustomerPicker()">選擇客戶</button>
+          </div>
+        </div>
+        <div class="field wide">
+          <label>商品<span class="lh">（維修/其他可不填）</span></label>
+          <div class="input-row">
+            <input id="pu-product" readonly placeholder="未指定商品" autocomplete="off">
+            <button type="button" class="btn outline" onclick="openProductPicker()">選擇商品</button>
+            <button type="button" class="btn ghost" onclick="clearPurProduct()">清除</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>交易類型</label>
+          <div class="seg" id="seg-pu-type" data-value="purchase">
+            <button data-v="purchase">購買</button><button data-v="rental">租借</button>
+            <button data-v="repair">維修</button><button data-v="return">退貨</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>配戴耳別</label>
+          <div class="seg" id="seg-pu-ear" data-value="">
+            <button data-v="">—</button><button data-v="left">左耳</button>
+            <button data-v="right">右耳</button><button data-v="both">雙耳</button>
+          </div>
+        </div>
+        <div class="field"><label for="pu-serial_number">機身序號</label>
+          <input id="pu-serial_number" maxlength="50" autocomplete="off"></div>
+        <div class="field"><label for="pu-quantity">數量</label>
+          <input id="pu-quantity" inputmode="numeric" maxlength="4" placeholder="1" autocomplete="off"></div>
+        <div class="field price-col"><label for="pu-unit_price">成交單價</label>
+          <input id="pu-unit_price" inputmode="decimal" autocomplete="off"></div>
+        <div class="field">
+          <label>付款狀態</label>
+          <div class="seg" id="seg-pu-pay" data-value="unpaid">
+            <button data-v="unpaid">未付</button><button data-v="partial">部分</button>
+            <button data-v="paid">已付</button>
+          </div>
+        </div>
+        <div class="field"><label for="pu-transaction_date">交易日期<span class="req">＊</span><span class="lh df-hint"></span></label>
+          <input id="pu-transaction_date" type="text" maxlength="10" autocomplete="off" spellcheck="false"></div>
+        <div class="field"><label for="pu-warranty_start_date">保固起始日<span class="lh df-hint"></span></label>
+          <input id="pu-warranty_start_date" type="text" maxlength="10" autocomplete="off" spellcheck="false"></div>
+        <div class="field"><label for="pu-warranty_end_date">保固到期日<span class="lh df-hint"></span></label>
+          <input id="pu-warranty_end_date" type="text" maxlength="10" autocomplete="off" spellcheck="false"></div>
+        <div class="field wide"><label for="pu-notes">備註</label><textarea id="pu-notes" rows="3"></textarea></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-pur-save" onclick="savePurchase()">建立交易</button>
+        <button class="btn" onclick="clearPurchaseForm()">清空</button>
+        <button class="btn outline" onclick="searchPurchases()">查詢交易</button>
+        <button class="btn right hidden" id="btn-pur-del" onclick="deletePurchase()">刪除交易</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 交易查詢結果（頁內切換，比照商品查詢結果）──────────── -->
+  <div id="view-pur-results" class="hidden">
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="form-grid">
+        <div class="field"><label for="puf-customer">客戶</label>
+          <input id="puf-customer" autocomplete="off" oninput="pfPage=1; renderPurchasePage()"></div>
+        <div class="field"><label for="puf-product">商品</label>
+          <input id="puf-product" autocomplete="off" oninput="pfPage=1; renderPurchasePage()"></div>
+        <div class="field"><label for="puf-type">類型</label>
+          <select id="puf-type" onchange="pfPage=1; renderPurchasePage()">
+            <option value="">全部</option><option value="purchase">購買</option>
+            <option value="rental">租借</option><option value="repair">維修</option>
+            <option value="return">退貨</option>
+          </select></div>
+        <div class="field"><label for="puf-pay">付款狀態</label>
+          <select id="puf-pay" onchange="pfPage=1; renderPurchasePage()">
+            <option value="">全部</option><option value="unpaid">未付</option>
+            <option value="partial">部分</option><option value="paid">已付</option>
+          </select></div>
+      </div>
+    </div>
+    <div class="actions" style="margin: 0 0 1rem;">
+      <button class="btn outline" onclick="showView('purchases')">← 返回建檔</button>
+      <span style="align-self:center;" id="pur-count"></span>
+      <label class="right" style="display:flex; align-items:center; gap:.4rem; align-self:center;">每頁
+        <select id="pur-page-size" onchange="pfPage=1; renderPurchasePage()">
+          <option value="10">10</option><option value="20" selected>20</option>
+          <option value="50">50</option><option value="100">100</option>
+        </select>筆
+      </label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>交易日</th><th>客戶</th><th>商品</th><th>類型</th><th>數量</th>
+          <th class="price-col">單價</th><th>付款</th><th>保固到期</th>
+        </tr></thead>
+        <tbody id="pur-body"></tbody>
+      </table>
+    </div>
+    <div class="actions" id="pur-pager" style="border-top:none; padding-top:0; margin-top:1rem;">
+      <button class="btn sm" id="pur-prev" onclick="purGoPage(-1)">◀ 上一頁</button>
+      <span style="align-self:center;" id="pur-page-info"></span>
+      <button class="btn sm" id="pur-next" onclick="purGoPage(1)">下一頁 ▶</button>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/purchases.js?v={{ v }}"></script>{% endblock %}

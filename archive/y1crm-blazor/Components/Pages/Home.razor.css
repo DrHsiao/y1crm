@@ -1,0 +1,37 @@
+.legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: .75rem;
+}
+
+.legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    font-size: 1.05rem;
+}
+
+.legend-dot {
+    width: .95rem;
+    height: .95rem;
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+}
+
+/* 平板觸控:放大行事曆文字與工具列按鈕的可點面積 */
+.calendar-page ::deep .rz-scheduler {
+    font-size: 1rem;
+}
+
+.calendar-page ::deep .rz-scheduler-nav button {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+}
+
+.calendar-page ::deep .rz-event-content {
+    font-size: .95rem;
+    padding: .3rem .45rem;
+}

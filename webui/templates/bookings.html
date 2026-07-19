@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block title %}預約留言 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 預約留言（LINE 線上預約收單）─────────────────────── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <h3 style="flex:1;">預約留言<span class="lh" id="bk-count"></span></h3>
+      <div class="seg" id="bk-filter" data-value="new">
+        <button data-v="new">待處理</button><button data-v="handled">已處理</button>
+        <button data-v="cancelled">已取消</button><button data-v="">全部</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>留言時間</th><th>稱呼</th><th>電話</th><th>預約時間</th>
+          <th>需求</th><th>LINE / 客戶</th><th>狀態</th><th style="width:11rem;">操作</th>
+        </tr></thead>
+        <tbody id="bk-body"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:.8rem;">
+      客戶在 LINE 輸入「預約」即可取得表單連結；送出後這裡即時出現。電話確認後請按「已處理」。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/bookings.js?v={{ v }}"></script>{% endblock %}

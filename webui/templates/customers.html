@@ -1,0 +1,267 @@
+{% extends "layout.html" %}
+{% block title %}客戶資料 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 客戶表單（建檔 / 查詢 / 明細共用）───────────────── -->
+  <div id="view-form" class="card form-grid">
+    <div id="form-head-entry">
+      <div class="section-row">
+        <h3 style="flex:1; margin:0; white-space:nowrap;">客戶資料</h3>
+        <button type="button" class="btn sm" id="ocr-load-btn" onclick="warmupOcr()">🔌 載入模型</button>
+        <button type="button" class="btn sm" id="ocr-camera-btn" onclick="$('ocr-camera').click()" disabled>📷 拍照匯入</button>
+        <button type="button" class="btn sm" id="ocr-file-btn" onclick="$('ocr-file').click()" disabled>檔案匯入</button>
+      </div>
+      <input type="file" id="ocr-camera" accept="image/*" capture="environment" class="hidden">
+      <input type="file" id="ocr-file" accept="image/*" class="hidden">
+      <div id="ocr-status" class="field-info hidden"></div>
+    </div>
+    <div id="form-head-detail" class="hidden">
+      <h3 style="display:inline" id="detail-name"></h3>
+      <span class="code-badge" id="detail-code"></span>
+      <span id="detail-line" class="line-status"></span>
+    </div>
+
+    <div id="created-banner" class="banner success hidden">建檔成功！可以繼續補齊其餘資料，完成後按「儲存」。</div>
+
+    <div id="dup-panel" class="dup-panel hidden">
+      <div style="font-weight:700; margin-bottom:.3rem;">提醒：發現 <span id="dup-count"></span> 筆可能重複的客戶</div>
+      <ul id="dup-list" style="margin:0;"></ul>
+    </div>
+
+    <div class="dsection photo-section">
+      <div class="dsec-head" onclick="toggleDsec(event, this)">
+        <span class="dsec-chev">▼</span>
+        <span class="dsec-title">客戶照片<span class="lh" id="photo-count"></span></span>
+        <button type="button" class="btn sm" id="photo-camera-btn" onclick="event.stopPropagation(); $('photo-camera').click()">📷 拍照</button>
+        <button type="button" class="btn sm" onclick="event.stopPropagation(); $('photo-file').click()">上傳照片</button>
+      </div>
+      <div class="dsec-body">
+        <input type="file" id="photo-file" accept="image/*" multiple class="hidden">
+        <!-- capture：手機/平板直接開相機（後鏡頭）；桌機瀏覽器會忽略而退回檔案選擇 -->
+        <input type="file" id="photo-camera" accept="image/*" capture="environment" class="hidden">
+        <div id="photo-grid" class="photo-grid"></div>
+        <div id="photo-status" class="field-info hidden"></div>
+      </div>
+    </div>
+
+    <div class="dsection formimg-section">
+      <div class="dsec-head" onclick="toggleDsec(event, this)">
+        <span class="dsec-chev">▼</span>
+        <span class="dsec-title">原始表單影像<span class="lh">（匯入/拍照的原稿，僅保留最新一份）</span></span>
+        <button type="button" class="btn sm" id="formimg-camera-btn" onclick="event.stopPropagation(); $('formimg-camera').click()">📷 拍照</button>
+        <button type="button" class="btn sm" onclick="event.stopPropagation(); $('formimg-file').click()">上傳／回補</button>
+      </div>
+      <div class="dsec-body">
+        <input type="file" id="formimg-file" accept="image/*" class="hidden">
+        <input type="file" id="formimg-camera" accept="image/*" capture="environment" class="hidden">
+        <div id="formimg-view"></div>
+        <div id="formimg-status" class="field-info hidden"></div>
+      </div>
+    </div>
+
+    <div class="dsection" id="ds-data">
+    <div class="dsec-head" onclick="toggleDsec(event, this)">
+      <span class="dsec-chev">▼</span><span class="dsec-title">客戶資料</span>
+    </div>
+    <div class="dsec-body form-grid">
+    <h4 class="section-title">基本資料</h4>
+    <div class="field">
+      <label for="f-customer_code">客戶編號<span class="lh">（留空自動產生，如 C20260711-001）</span></label>
+      <div class="input-row">
+        <input id="f-customer_code" maxlength="20" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn outline fq-btn" onclick="queryByField('customer_code')">查詢</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-name">姓名 <span class="req">*</span></label>
+      <div class="input-row">
+        <input id="f-name" maxlength="50" autocomplete="off">
+        <button type="button" class="btn outline fq-btn" onclick="queryByField('name')">查詢</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-national_id">身分證字號<span class="lh">（個資欄位，可留空）</span></label>
+      <div class="input-row">
+        <input id="f-national_id" maxlength="10" placeholder="A123456789" autocapitalize="characters"
+               autocomplete="off" spellcheck="false">
+        <button type="button" class="btn outline fq-btn" onclick="queryByField('national_id')">查詢</button>
+      </div>
+      <div id="warn-nid" class="soft-warn hidden"></div>
+    </div>
+    <div class="field">
+      <label>性別</label>
+      <div class="seg" id="seg-gender" data-value="">
+        <button data-v="">—</button><button data-v="M">男</button><button data-v="F">女</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-birth_date">出生年月日<span class="lh df-hint"></span></label>
+      <div class="input-row">
+        <input id="f-birth_date" type="text" maxlength="10" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn outline fq-btn" onclick="queryByField('birth_date')">查詢</button>
+      </div>
+      <div id="birth-info" class="field-info hidden"></div>
+    </div>
+    <div class="field">
+      <label for="f-registration_date">建檔日期<span class="lh">（留空＝建檔當天）</span></label>
+      <input id="f-registration_date" type="text" maxlength="10" autocomplete="off" spellcheck="false">
+    </div>
+
+    <h4 class="section-title">聯絡方式</h4>
+    <div class="field">
+      <label for="f-phone_mobile">通訊電話（個人手機）</label>
+      <input id="f-phone_mobile" type="tel" inputmode="tel" maxlength="20" placeholder="0912345678" autocomplete="off">
+      <div id="warn-mobile" class="soft-warn hidden"></div>
+    </div>
+    <div class="field">
+      <label for="f-phone_home">通訊電話（市話）</label>
+      <input id="f-phone_home" type="tel" inputmode="tel" maxlength="20" placeholder="02-12345678" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="f-email">電子信箱</label>
+      <input id="f-email" type="email" maxlength="100" placeholder="name@example.com"
+             autocapitalize="none" spellcheck="false" autocomplete="off">
+      <div id="warn-email" class="soft-warn hidden"></div>
+    </div>
+    <div class="field">
+      <label for="f-contact_name">聯絡人姓名<span class="lh">（家屬/照護者）</span></label>
+      <input id="f-contact_name" maxlength="50" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="f-contact_phone">聯絡人電話</label>
+      <input id="f-contact_phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off">
+    </div>
+
+    <div class="section-head" style="display:flex; align-items:center; gap:.6rem;">
+      <h4 class="section-title" style="flex:1;">戶籍地址</h4>
+      <button type="button" class="btn outline sm" onclick="copyMailing()">同通訊地址</button>
+    </div>
+    <div class="field"><label for="f-household_city">縣市</label>
+      <input id="f-household_city" list="tw-cities" maxlength="20" autocomplete="off"></div>
+    <div class="field"><label for="f-household_district">鄉鎮市區</label>
+      <input id="f-household_district" maxlength="20" autocomplete="off"></div>
+    <div class="field"><label for="f-household_village">村里</label>
+      <input id="f-household_village" maxlength="20" autocomplete="off"></div>
+    <div class="field wide"><label for="f-household_detail">路街/段/巷/弄/號/樓</label>
+      <input id="f-household_detail" maxlength="100" autocomplete="off"></div>
+
+    <div class="section-row">
+      <h4 class="section-title" style="flex:1;">通訊地址</h4>
+      <button type="button" class="btn outline sm" onclick="copyHousehold()">同戶籍地址</button>
+    </div>
+    <div class="field"><label for="f-mailing_city">縣市</label>
+      <input id="f-mailing_city" list="tw-cities" maxlength="20" autocomplete="off"></div>
+    <div class="field"><label for="f-mailing_district">鄉鎮市區</label>
+      <input id="f-mailing_district" maxlength="20" autocomplete="off"></div>
+    <div class="field"><label for="f-mailing_village">村里</label>
+      <input id="f-mailing_village" maxlength="20" autocomplete="off"></div>
+    <div class="field wide"><label for="f-mailing_detail">路街/段/巷/弄/號/樓</label>
+      <input id="f-mailing_detail" maxlength="100" autocomplete="off"></div>
+
+    <h4 class="section-title">其他</h4>
+    <div class="field">
+      <label>個資使用同意書</label>
+      <div class="seg" id="seg-consent" data-value="">
+        <button data-v="">—</button><button data-v="y">已簽署</button><button data-v="n">未簽署</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-consent_date">同意書簽署日期<span class="lh">（選「已簽署」時自動帶今天，可修改）</span></label>
+      <input id="f-consent_date" type="text" maxlength="10" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label>申請補助<span class="lh">（政府助聽器補助）</span></label>
+      <div class="seg" id="seg-subsidy" data-value="">
+        <button data-v="">—</button><button data-v="y">是</button><button data-v="n">否</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>身份</label>
+      <div class="seg" id="seg-identity" data-value="">
+        <button data-v="">—</button><button data-v="mild">輕</button><button data-v="moderate">中</button>
+        <button data-v="severe">重</button><button data-v="profound">極重</button>
+      </div>
+    </div>
+    <div class="field wide">
+      <label for="f-notes">備註</label>
+      <textarea id="f-notes" rows="4"></textarea>
+    </div>
+    </div><!-- /dsec-body --></div><!-- /dsection ds-data -->
+
+    <div class="dsection todo-section">
+      <div class="dsec-head" onclick="toggleDsec(event, this)">
+        <span class="dsec-chev">▼</span>
+        <span class="dsec-title">待辦事項<span class="lh" id="todo-count"></span></span>
+        <button type="button" class="btn sm" onclick="event.stopPropagation(); openTodoModal()">＋ 新增待辦</button>
+      </div>
+      <div class="dsec-body">
+        <div id="todo-list"></div>
+        <input type="file" id="todo-att-file" accept="image/*,application/pdf" class="hidden">
+      </div>
+    </div>
+
+    <div class="dsection tx-section hidden">
+      <div class="dsec-head" onclick="toggleDsec(event, this)">
+        <span class="dsec-chev">▼</span>
+        <span class="dsec-title">交易紀錄<span class="lh" id="tx-count"></span></span>
+        <button type="button" class="btn sm" onclick="event.stopPropagation(); openTxModal()">＋ 新增交易</button>
+      </div>
+      <div class="dsec-body">
+        <div id="tx-list"></div>
+      </div>
+    </div>
+
+    <div class="actions" id="actions-entry">
+      <button class="btn" id="btn-create" onclick="createCustomer()">建檔</button>
+      <button class="btn outline" id="btn-query" onclick="queryCustomers()">查詢</button>
+      <button class="btn ghost right" onclick="clearForm()">清空</button>
+    </div>
+    <div class="actions hidden" id="actions-detail">
+      <button class="btn" id="btn-save" onclick="saveCustomer()">儲存</button>
+      <button class="btn ghost" onclick="backToSearch()">回客戶查詢</button>
+    </div>
+    <p class="meta hidden" id="detail-meta"></p>
+  </div>
+
+  <!-- ── 查詢結果（頁內切換）───────────────────────────── -->
+  <div id="view-results" class="hidden">
+    <div class="actions" style="margin: 0 0 1rem;">
+      <button class="btn outline" onclick="showView('form')">← 返回修改條件</button>
+      <span style="align-self:center;" id="results-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>客戶編號</th><th>姓名</th><th>性別</th><th>年齡</th>
+          <th>手機</th><th>市話</th><th>通訊地址</th><th>建檔日</th>
+        </tr></thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+    <div class="actions" id="pager" style="border-top:none; padding-top:0; margin-top:1rem;">
+      <button class="btn sm" id="pager-prev" onclick="pagerGo(-1)">◀ 上一頁</button>
+      <span style="align-self:center;" id="pager-info"></span>
+      <button class="btn sm" id="pager-next" onclick="pagerGo(1)">下一頁 ▶</button>
+    </div>
+  </div>
+
+  <!-- ── OCR 辨識中遮罩（處理期間鎖住整個畫面，防關閉/誤觸）──── -->
+  <div id="ocr-overlay" class="hidden" aria-live="polite" aria-busy="true">
+    <div class="ocr-box">
+      <div class="ocr-spin"></div>
+      <div class="ocr-title">辨識中，請稍候…</div>
+      <div class="ocr-timer" id="ocr-timer">已處理 0 秒</div>
+      <div class="ocr-hint" id="ocr-hint">正在讀取表單內容，完成後會自動填入欄位。<br>處理期間請勿離開或關閉本頁。</div>
+      <div class="ocr-bar"></div>
+    </div>
+  </div>
+
+  <datalist id="tw-cities">
+    <option value="臺北市"><option value="新北市"><option value="桃園市"><option value="臺中市">
+    <option value="臺南市"><option value="高雄市"><option value="基隆市"><option value="新竹市">
+    <option value="嘉義市"><option value="新竹縣"><option value="苗栗縣"><option value="彰化縣">
+    <option value="南投縣"><option value="雲林縣"><option value="嘉義縣"><option value="屏東縣">
+    <option value="宜蘭縣"><option value="花蓮縣"><option value="臺東縣"><option value="澎湖縣">
+    <option value="金門縣"><option value="連江縣">
+  </datalist>
+{% endblock %}
+{% block scripts %}<script src="/static/js/customers.js?v={{ v }}"></script>{% endblock %}

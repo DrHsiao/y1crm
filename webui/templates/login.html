@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登入 — y1crm</title>
+<script>try{var t=localStorage.getItem("y1crm-theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="/static/css/app.css?v={{ v }}">
+</head>
+<body>
+
+<main>
+  <div class="login-wrap">
+    <canvas id="login-fx" aria-hidden="true"></canvas>
+    <div class="card login-card">
+      <h2 id="login-company">…</h2>
+      <div class="sub" id="login-sub">請登入使用</div>
+      <div class="field">
+        <label for="login-username">帳號</label>
+        <input id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="login-password">密碼</label>
+        <div class="pw-row">
+          <input id="login-password" type="password" autocomplete="current-password" enterkeyhint="go">
+          <button type="button" class="btn outline" id="pw-toggle">顯示</button>
+        </div>
+      </div>
+      <div id="login-error" class="banner danger hidden"></div>
+      <button class="btn" style="width:100%; justify-content:center; margin-top:1rem; padding:.85rem;"
+              id="login-btn">登入</button>
+    </div>
+  </div>
+</main>
+
+<script src="/static/js/login.js?v={{ v }}"></script>
+</body>
+</html>

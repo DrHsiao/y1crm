@@ -1,0 +1,116 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.EntityFrameworkCore
+@using y1crm.Models
+@inject crm1Context Db
+@inject y1crm.Services.AppSettingsService Settings
+
+<PageTitle>登入‧@companyName</PageTitle>
+
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80dvh;">
+    <div class="card shadow-sm" style="width: min(26rem, 94vw);">
+        <div class="card-body p-4 p-md-5">
+            <h2 class="card-title mb-1 text-center">@companyName</h2>
+            <p class="text-center fs-5 mb-4" style="color: var(--rz-text-secondary-color);">@subtitle</p>
+
+            <EditForm Model="loginModel" method="post" OnValidSubmit="HandleLoginAsync" FormName="login">
+                <DataAnnotationsValidator />
+
+                <div class="mb-4">
+                    <label class="form-label fs-5" for="login-username">帳號</label>
+                    <InputText id="login-username" class="form-control form-control-lg"
+                               @bind-Value="loginModel.Username" autofocus
+                               autocomplete="username" autocapitalize="none" spellcheck="false" />
+                    <ValidationMessage For="() => loginModel.Username" />
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fs-5" for="login-password">密碼</label>
+                    <div class="input-group input-group-lg">
+                        <InputText type="password" id="login-password" class="form-control"
+                                   @bind-Value="loginModel.Password"
+                                   autocomplete="current-password" enterkeyhint="go" />
+                        <button type="button" class="btn btn-outline-secondary px-3"
+                                onclick="const i=document.getElementById('login-password');const s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'隱藏':'顯示';">顯示</button>
+                    </div>
+                    <ValidationMessage For="() => loginModel.Password" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger fs-6 py-2">@errorMessage</div>
+                }
+
+                <button type="submit" class="btn btn-primary btn-lg w-100 py-3 fs-5 mt-2">登入</button>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private LoginModel loginModel { get; set; } = new();
+
+    private string? errorMessage;
+    private string companyName = "";
+    private string subtitle = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        companyName = await Settings.GetCompanyNameAsync();
+        var branch = await Settings.GetBranchNameAsync();
+        subtitle = string.IsNullOrEmpty(branch) ? "請登入使用" : $"{branch}‧請登入使用";
+    }
+
+    private async Task HandleLoginAsync()
+    {
+        var user = await Db.Users.FirstOrDefaultAsync(u => u.Username == loginModel.Username);
+
+        if (user is null || string.IsNullOrEmpty(user.Password) || !VerifyPassword(loginModel.Password, user.Password))
+        {
+            errorMessage = "帳號或密碼錯誤";
+            return;
+        }
+
+        if (!user.Password.StartsWith("$2"))
+        {
+            user.Password = BCrypt.Net.BCrypt.HashPassword(loginModel.Password);
+            await Db.SaveChangesAsync();
+        }
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.Username ?? string.Empty),
+            new(ClaimTypes.Role, user.Level ?? "user"),
+        };
+        if (!string.IsNullOrEmpty(user.Realname))
+        {
+            claims.Add(new Claim("realname", user.Realname));
+        }
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+
+        HttpContext.Response.Redirect("/");
+    }
+
+    private static bool VerifyPassword(string input, string stored) =>
+        stored.StartsWith("$2") ? BCrypt.Net.BCrypt.Verify(input, stored) : stored == input;
+
+    private class LoginModel
+    {
+        [Required(ErrorMessage = "請輸入帳號")]
+        public string Username { get; set; } = "";
+
+        [Required(ErrorMessage = "請輸入密碼")]
+        public string Password { get; set; } = "";
+    }
+}

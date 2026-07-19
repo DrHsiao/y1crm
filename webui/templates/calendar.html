@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}行事曆 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 行事曆（FullCalendar：回訪提醒＋客戶待辦＋個人/門市事件）── -->
+  <div class="card cal-card">
+    <div id="fc"></div>
+  </div>
+  <!-- 新增事件浮動鈕：固定右下角，不佔工具列位 -->
+  <button type="button" class="fab" title="新增行事曆" aria-label="新增行事曆"
+          onclick="openEventModal()">＋</button>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/fullcalendar/index.global.min.js"></script>
+<script src="/static/vendor/fullcalendar/zh-tw.global.min.js"></script>
+<script src="/static/js/calendar.js?v={{ v }}"></script>
+{% endblock %}

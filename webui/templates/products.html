@@ -1,0 +1,139 @@
+{% extends "layout.html" %}
+{% block title %}商品管理 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 商品管理（選單權限 products：admin/manager）───────── -->
+  <div id="view-products">
+    <div class="card">
+      <div class="section-row">
+        <h3 style="flex:1;" id="prod-form-title">新增商品</h3>
+        <button type="button" class="btn outline sm hidden" id="btn-prod-back" onclick="backToProdResults()">← 返回列表</button>
+        <span class="hint" id="prod-meta"></span>
+      </div>
+
+      <!-- 商品附件（僅編輯既有商品時顯示；圖片可預覽，也接受說明書/合約等任意檔案）-->
+      <div class="prod-attach-section">
+        <div class="section-row" style="margin-bottom:.6rem;">
+          <h4 class="section-title" style="flex:1; margin:0;">商品附件<span class="lh" id="pa-count"></span></h4>
+          <button type="button" class="btn sm" onclick="$('pa-file').click()">＋ 上傳附件</button>
+        </div>
+        <input type="file" id="pa-file" class="hidden">
+        <div id="pa-grid" class="pa-grid"></div>
+        <div id="pa-status" class="field-info hidden"></div>
+        <p class="hint">支援圖片、PDF、Word/Excel、壓縮檔等（單檔上限 25MB）。圖片可直接預覽，其他檔案點擊下載。</p>
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="p-category">分類<span class="req">＊</span></label>
+          <div class="input-row">
+            <select id="p-category"></select>
+            <button type="button" class="btn outline fq-btn pq-btn" onclick="searchProducts()">查詢</button>
+          </div>
+        </div>
+        <div class="field"><label for="p-brand">品牌<span class="req">＊</span></label>
+          <div class="input-row">
+            <input id="p-brand" list="brand-list" maxlength="50" autocomplete="off" onkeydown="if(event.key==='Enter')searchProducts()">
+            <button type="button" class="btn outline fq-btn pq-btn" onclick="searchProducts()">查詢</button>
+          </div>
+          <datalist id="brand-list"></datalist></div>
+        <div class="field"><label for="p-model_name">型號<span class="req">＊</span></label>
+          <div class="input-row">
+            <input id="p-model_name" maxlength="100" autocomplete="off" onkeydown="if(event.key==='Enter')searchProducts()">
+            <button type="button" class="btn outline fq-btn pq-btn" onclick="searchProducts()">查詢</button>
+          </div></div>
+        <div class="field"><label for="p-spec">規格補述<span class="lh">（如「312 電池 6 入」）</span></label>
+          <input id="p-spec" maxlength="100" autocomplete="off"></div>
+        <div class="field"><label for="p-product_code">商品編號 / SKU<span class="lh">（可空）</span></label>
+          <input id="p-product_code" maxlength="30" autocomplete="off"></div>
+        <div class="field"><label for="p-barcode">條碼<span class="lh">（EAN/UPC）</span></label>
+          <input id="p-barcode" maxlength="50" autocomplete="off"></div>
+        <div class="field"><label for="p-unit">計價單位</label>
+          <input id="p-unit" maxlength="10" placeholder="台 / 顆 / 組 / 盒" autocomplete="off"></div>
+        <div class="field"><label for="p-supplier">供應商</label>
+          <div class="input-row">
+            <input id="p-supplier" list="supplier-list" maxlength="100" autocomplete="off" onkeydown="if(event.key==='Enter')searchProducts()">
+            <button type="button" class="btn outline fq-btn pq-btn" onclick="searchProducts()">查詢</button>
+          </div>
+          <datalist id="supplier-list"></datalist></div>
+        <div class="field price-col"><label for="p-list_price">建議售價</label>
+          <input id="p-list_price" inputmode="decimal" autocomplete="off"></div>
+        <div class="field price-col"><label for="p-cost_price">進價</label>
+          <input id="p-cost_price" inputmode="decimal" autocomplete="off"></div>
+        <div class="field"><label for="p-warranty_months">預設保固月數</label>
+          <input id="p-warranty_months" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+        <div class="field">
+          <label>狀態</label>
+          <div class="seg" id="seg-p-active" data-value="1">
+            <button data-v="1">在售</button><button data-v="0">停售</button>
+          </div>
+        </div>
+
+        <h4 class="section-title ha-only">助聽器規格</h4>
+        <div class="field ha-only"><label for="p-ha_form">機型</label><select id="p-ha_form"></select></div>
+        <div class="field ha-only"><label for="p-ha_tech_level">等級</label><select id="p-ha_tech_level"></select></div>
+        <div class="field ha-only"><label for="p-ha_channels">頻道數</label>
+          <input id="p-ha_channels" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+        <div class="field ha-only"><label for="p-ha_battery">電池</label><select id="p-ha_battery"></select></div>
+        <div class="field ha-only">
+          <label>藍牙直連</label>
+          <div class="seg" id="seg-p-bt" data-value="">
+            <button data-v="">—</button><button data-v="y">有</button><button data-v="n">無</button>
+          </div>
+        </div>
+        <div class="field ha-only">
+          <label>電感線圈（T-coil）</label>
+          <div class="seg" id="seg-p-tcoil" data-value="">
+            <button data-v="">—</button><button data-v="y">有</button><button data-v="n">無</button>
+          </div>
+        </div>
+        <div class="field ha-only"><label for="p-ha_ip_rating">防塵防水等級</label>
+          <input id="p-ha_ip_rating" maxlength="10" placeholder="IP68" autocomplete="off"></div>
+        <div class="field ha-only"><label for="p-subsidy_class">補助款別</label><select id="p-subsidy_class"></select></div>
+        <div class="field wide ha-only">
+          <label>適配聽損程度<span class="lh">（與客戶「身份」同一套代碼，可複選）</span></label>
+          <div class="check-row" id="p-fit"></div>
+        </div>
+
+        <div class="field wide"><label for="p-compatible_models">適用機型<span class="lh">（配件用，如「Phonak RIC 全系列」）</span></label>
+          <input id="p-compatible_models" maxlength="200" autocomplete="off"></div>
+        <div class="field wide"><label for="p-notes">備註</label><textarea id="p-notes" rows="3"></textarea></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-prod-save" onclick="saveProduct()">建立商品</button>
+        <button class="btn" onclick="clearProductForm()">清空</button>
+        <button class="btn right hidden" id="btn-prod-del" onclick="deleteProduct()">刪除商品</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 商品查詢結果（頁內切換，比照客戶查詢結果）──────────── -->
+  <div id="view-prod-results" class="hidden">
+    <div class="actions" style="margin: 0 0 1rem;">
+      <button class="btn outline" onclick="showView('products')">← 返回修改條件</button>
+      <span style="align-self:center;" id="prod-count"></span>
+      <label class="right" style="display:flex; align-items:center; gap:.4rem; align-self:center;">每頁
+        <select id="prod-page-size" onchange="prodPage=1; renderProductPage()">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>筆
+      </label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>分類</th><th>品牌</th><th>型號</th><th>規格</th>
+          <th class="price-col">建議售價</th><th>保固</th><th>補助款</th><th>狀態</th>
+        </tr></thead>
+        <tbody id="prod-body"></tbody>
+      </table>
+    </div>
+    <div class="actions" id="prod-pager" style="border-top:none; padding-top:0; margin-top:1rem;">
+      <button class="btn sm" id="prod-prev" onclick="prodGoPage(-1)">◀ 上一頁</button>
+      <span style="align-self:center;" id="prod-page-info"></span>
+      <button class="btn sm" id="prod-next" onclick="prodGoPage(1)">下一頁 ▶</button>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/products.js?v={{ v }}"></script>{% endblock %}

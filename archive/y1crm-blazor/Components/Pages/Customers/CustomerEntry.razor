@@ -1,0 +1,349 @@
+@page "/customers"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using y1crm.Models
+@inject IDbContextFactory<crm1Context> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>客戶資料</PageTitle>
+
+<div class="customer-entry">
+    @if (view == View.Form)
+    {
+        <div class="d-flex align-items-baseline gap-3 flex-wrap mb-2">
+            <h3 class="m-0">客戶資料</h3>
+            <span class="hint">任一欄位皆可作為查詢條件;建檔只需姓名,其餘可之後補登。</span>
+        </div>
+
+        @if (dupMatches.Count > 0)
+        {
+            <div class="alert alert-warning mt-3 dup-panel">
+                <div class="fw-bold mb-2">提醒:發現 @dupMatches.Count 筆可能重複的客戶</div>
+                <ul class="m-0">
+                    @foreach (var d in dupMatches)
+                    {
+                        <li>
+                            <a href="customers/@d.Id">@d.Name</a>
+                            <span class="dup-meta">
+                                @d.CustomerCode
+                                @(string.IsNullOrEmpty(d.PhoneMobile) ? "" : $"‧{d.PhoneMobile}")
+                                @(d.BirthDate is null ? "" : $"‧{d.BirthDate:yyyy/MM/dd}")
+                            </span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <CustomerFields Model="model" OnKeyFieldBlur="OnKeyFieldBlurAsync" />
+
+        @if (status is { } s)
+        {
+            <div class="alert alert-@s.Css mt-4 mb-0 fs-6">@s.Text</div>
+        }
+
+        <div class="d-flex gap-3 mt-4 flex-wrap action-row">
+            <button class="btn btn-primary btn-lg px-4" @onclick="CreateAsync" disabled="@busy">
+                <RadzenIcon Icon="person_add" /> 建檔
+            </button>
+            <button class="btn btn-outline-primary btn-lg px-4" @onclick="QueryAsync" disabled="@busy">
+                <RadzenIcon Icon="search" /> 查詢
+            </button>
+            <button class="btn btn-outline-secondary btn-lg px-4 ms-auto" @onclick="ClearForm" disabled="@busy">
+                <RadzenIcon Icon="backspace" /> 清空
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap action-row">
+            <button class="btn btn-outline-primary btn-lg" @onclick="BackToForm">
+                <RadzenIcon Icon="arrow_back" /> 返回修改條件
+            </button>
+            <span class="fs-5">共 @totalCount 筆符合@(totalCount > MaxResults ? $"(僅顯示前 {MaxResults} 筆)" : "")</span>
+        </div>
+
+        <div class="results">
+            <RadzenDataGrid TItem="Customer" Data="results" AllowPaging="true" PageSize="10" AllowSorting="true"
+                            RowSelect="OpenCustomer" EmptyText="查無資料">
+                <Columns>
+                    <RadzenDataGridColumn TItem="Customer" Property="CustomerCode" Title="客戶編號" Width="150px" />
+                    <RadzenDataGridColumn TItem="Customer" Property="Name" Title="姓名" Width="120px" />
+                    <RadzenDataGridColumn TItem="Customer" Property="Gender" Title="性別" Width="80px">
+                        <Template Context="c">@GenderText(c.Gender)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="Customer" Property="BirthDate" Title="年齡" Width="90px">
+                        <Template Context="c">@AgeText(c.BirthDate)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="Customer" Property="PhoneMobile" Title="手機" Width="140px" />
+                    <RadzenDataGridColumn TItem="Customer" Property="PhoneHome" Title="市話" Width="130px" />
+                    <RadzenDataGridColumn TItem="Customer" Title="通訊地址" Sortable="false">
+                        <Template Context="c">@AddressText(c)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="Customer" Property="RegistrationDate" Title="建檔日" FormatString="{0:yyyy/MM/dd}" Width="120px" />
+                </Columns>
+            </RadzenDataGrid>
+        </div>
+    }
+</div>
+
+@code {
+    private const int MaxResults = 200;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private enum View { Form, Results }
+
+    private View view = View.Form;
+    private CustomerFormModel model = new();
+    private List<Customer> dupMatches = new();
+    private List<Customer> results = new();
+    private int totalCount;
+    private (string Text, string Css)? status;
+    private bool confirmCreate;
+    private bool busy;
+
+    private async Task QueryAsync()
+    {
+        busy = true;
+        status = null;
+        confirmCreate = false;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var q = BuildQuery(db);
+
+            totalCount = await q.CountAsync();
+            if (totalCount == 0)
+            {
+                status = ("查無符合條件的客戶。若要新增,確認姓名後按「建檔」即可。", "info");
+                return;
+            }
+
+            if (totalCount == 1)
+            {
+                var id = await q.Select(c => c.Id).FirstAsync();
+                Nav.NavigateTo($"customers/{id}");
+                return;
+            }
+
+            results = await q.OrderByDescending(c => c.UpdatedAt).Take(MaxResults).ToListAsync();
+            view = View.Results;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private IQueryable<Customer> BuildQuery(crm1Context db)
+    {
+        IQueryable<Customer> q = db.Customers.AsNoTracking();
+
+        // 每個條件都用獨立區域變數,避免 lambda 捕捉到同一個變數
+        var code = CustomerFormModel.Clean(model.CustomerCode);
+        if (code != null) q = q.Where(c => c.CustomerCode.Contains(code));
+
+        var name = CustomerFormModel.Clean(model.Name);
+        if (name != null) q = q.Where(c => c.Name.Contains(name));
+
+        var nid = CustomerFormModel.Clean(model.NationalId)?.ToUpperInvariant();
+        if (nid != null) q = q.Where(c => c.NationalId.Contains(nid));
+
+        var gender = CustomerFormModel.Clean(model.Gender);
+        if (gender != null) q = q.Where(c => c.Gender == gender);
+
+        if (model.BirthDate is { } bd) q = q.Where(c => c.BirthDate == bd);
+        if (model.RegistrationDate is { } rd) q = q.Where(c => c.RegistrationDate == rd);
+
+        var mobile = CustomerFormModel.Clean(model.PhoneMobile);
+        if (mobile != null) q = q.Where(c => c.PhoneMobile.Contains(mobile));
+
+        var home = CustomerFormModel.Clean(model.PhoneHome);
+        if (home != null) q = q.Where(c => c.PhoneHome.Contains(home));
+
+        var email = CustomerFormModel.Clean(model.Email);
+        if (email != null) q = q.Where(c => c.Email.Contains(email));
+
+        var cname = CustomerFormModel.Clean(model.ContactName);
+        if (cname != null) q = q.Where(c => c.ContactName.Contains(cname));
+
+        var cphone = CustomerFormModel.Clean(model.ContactPhone);
+        if (cphone != null) q = q.Where(c => c.ContactPhone.Contains(cphone));
+
+        var hcity = CustomerFormModel.Clean(model.HouseholdCity);
+        if (hcity != null) q = q.Where(c => c.HouseholdCity.Contains(hcity));
+
+        var hdist = CustomerFormModel.Clean(model.HouseholdDistrict);
+        if (hdist != null) q = q.Where(c => c.HouseholdDistrict.Contains(hdist));
+
+        var hvill = CustomerFormModel.Clean(model.HouseholdVillage);
+        if (hvill != null) q = q.Where(c => c.HouseholdVillage.Contains(hvill));
+
+        var hdetail = CustomerFormModel.Clean(model.HouseholdDetail);
+        if (hdetail != null) q = q.Where(c => c.HouseholdDetail.Contains(hdetail));
+
+        var mcity = CustomerFormModel.Clean(model.MailingCity);
+        if (mcity != null) q = q.Where(c => c.MailingCity.Contains(mcity));
+
+        var mdist = CustomerFormModel.Clean(model.MailingDistrict);
+        if (mdist != null) q = q.Where(c => c.MailingDistrict.Contains(mdist));
+
+        var mvill = CustomerFormModel.Clean(model.MailingVillage);
+        if (mvill != null) q = q.Where(c => c.MailingVillage.Contains(mvill));
+
+        var mdetail = CustomerFormModel.Clean(model.MailingDetail);
+        if (mdetail != null) q = q.Where(c => c.MailingDetail.Contains(mdetail));
+
+        if (model.ConsentSel == "y") q = q.Where(c => c.ConsentSigned);
+        else if (model.ConsentSel == "n") q = q.Where(c => !c.ConsentSigned);
+
+        if (model.SubsidySel == "y") q = q.Where(c => c.SubsidyApplied);
+        else if (model.SubsidySel == "n") q = q.Where(c => !c.SubsidyApplied);
+
+        if (model.ConsentDate is { } cd) q = q.Where(c => c.ConsentDate == cd);
+
+        var notes = CustomerFormModel.Clean(model.Notes);
+        if (notes != null) q = q.Where(c => c.Notes.Contains(notes));
+
+        return q;
+    }
+
+    private async Task CreateAsync()
+    {
+        busy = true;
+        status = null;
+        try
+        {
+            if (CustomerFormModel.Clean(model.Name) is null)
+            {
+                status = ("請至少輸入「姓名」後再建檔,其餘欄位可於建檔後補登。", "danger");
+                return;
+            }
+
+            await RefreshDuplicatesAsync();
+            if (dupMatches.Count > 0 && !confirmCreate)
+            {
+                confirmCreate = true;
+                status = ($"發現 {dupMatches.Count} 筆可能重複的客戶(上方清單可點開確認)。確定不是同一人,請再按一次「建檔」。", "warning");
+                return;
+            }
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = new Customer();
+            model.ApplyTo(entity);
+            entity.UpdatedBy = await GetCurrentUserNameAsync();
+
+            if (string.IsNullOrEmpty(entity.CustomerCode))
+            {
+                entity.CustomerCode = await NextCustomerCodeAsync(db);
+            }
+
+            if (entity.RegistrationDate == default)
+            {
+                entity.RegistrationDate = DateOnly.FromDateTime(DateTime.Today);
+            }
+
+            db.Customers.Add(entity);
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                status = (CustomerFormModel.SaveErrorMessage(ex), "danger");
+                return;
+            }
+
+            Nav.NavigateTo($"customers/{entity.Id}?created=1");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static async Task<string> NextCustomerCodeAsync(crm1Context db)
+    {
+        var prefix = $"C{DateTime.Today:yyyyMMdd}-";
+        var todayCount = await db.Customers.CountAsync(c => c.CustomerCode.StartsWith(prefix));
+        return $"{prefix}{todayCount + 1:D3}";
+    }
+
+    private async Task RefreshDuplicatesAsync()
+    {
+        var name = CustomerFormModel.Clean(model.Name);
+        var mobile = CustomerFormModel.Clean(model.PhoneMobile);
+        var nid = CustomerFormModel.Clean(model.NationalId)?.ToUpperInvariant();
+
+        if (name is null && mobile is null && nid is null)
+        {
+            dupMatches.Clear();
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        dupMatches = await db.Customers.AsNoTracking()
+            .Where(c => (name != null && c.Name == name)
+                     || (mobile != null && c.PhoneMobile == mobile)
+                     || (nid != null && c.NationalId == nid))
+            .OrderByDescending(c => c.UpdatedAt)
+            .Take(5)
+            .ToListAsync();
+    }
+
+    private async Task OnKeyFieldBlurAsync()
+    {
+        confirmCreate = false;
+        await RefreshDuplicatesAsync();
+    }
+
+    private void ClearForm()
+    {
+        model = new CustomerFormModel();
+        dupMatches.Clear();
+        status = null;
+        confirmCreate = false;
+    }
+
+    private void BackToForm() => view = View.Form;
+
+    private void OpenCustomer(Customer c) => Nav.NavigateTo($"customers/{c.Id}");
+
+    private async Task<string?> GetCurrentUserNameAsync()
+    {
+        if (AuthState is null)
+        {
+            return null;
+        }
+
+        var user = (await AuthState).User;
+        return user.FindFirst("realname")?.Value ?? user.Identity?.Name;
+    }
+
+    private static string GenderText(string? g) => g switch { "M" => "男", "F" => "女", _ => "—" };
+
+    private static string AgeText(DateOnly? birth)
+    {
+        if (birth is not { } b)
+        {
+            return "—";
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var age = today.Year - b.Year;
+        if (b > today.AddYears(-age))
+        {
+            age--;
+        }
+
+        return $"{age} 歲";
+    }
+
+    private static string AddressText(Customer c)
+    {
+        var text = $"{c.MailingCity}{c.MailingDistrict}{c.MailingDetail}";
+        return string.IsNullOrWhiteSpace(text) ? "—" : text;
+    }
+}
