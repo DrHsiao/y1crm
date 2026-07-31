@@ -22,9 +22,11 @@ import logging
 import os
 import re
 import secrets
+import threading
+import time
 import urllib.request
-from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymysql
 import pymysql.cursors
@@ -32,6 +34,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 import config
+from api import ai_chat
 
 log = logging.getLogger("y1crm.line")
 router = APIRouter()
@@ -89,6 +92,14 @@ def push(line_user_id: str, texts: List[str]) -> bool:
     return _call_api("/message/push", {
         "to": line_user_id,
         "messages": [{"type": "text", "text": t} for t in texts[:5]]})
+
+
+def push_messages(line_user_id: str, messages: List[Dict[str, Any]]) -> bool:
+    """主動推播任意訊息物件（樣板訊息等；佔每月推播額度）。"""
+    if not line_user_id or not messages:
+        return False
+    return _call_api("/message/push", {"to": line_user_id,
+                                       "messages": messages[:5]})
 
 
 # ── 客戶綁定 ─────────────────────────────────────────────────
@@ -150,8 +161,182 @@ def _upsert_follower(uid: str) -> None:
             (uid, p.get("displayName"), p.get("pictureUrl")))
 
 
+HINT = ("您好 😊 門市人員會盡快查看您的訊息並回覆。\n"
+        "需要預約請點下方選單「我要預約」，或直接輸入「預約」。")
+
+
 def _norm_phone(s: str) -> str:
     return re.sub(r"\D", "", s or "")
+
+
+def _maybe_hint(uid: str, rt: str) -> None:
+    """未綁定者的自動回覆：只回一次提示，之後靜音。
+
+    每句都回歡迎詞會洗版擾人；訊息仍照常進 line_followers 配對名單，
+    店員在 CRM 看得到、也隨時能人工回覆。綁定後本函式不再被呼叫。
+    """
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT hint_sent_at FROM line_followers WHERE line_user_id=%s", (uid,))
+        row = cur.fetchone()
+        if row and row["hint_sent_at"]:
+            return                      # 已提示過 → 靜音，交給店員
+        cur.execute("UPDATE line_followers SET hint_sent_at=NOW() WHERE line_user_id=%s", (uid,))
+    reply(rt, [HINT])
+
+
+# ── 客服 AI（本機推論）與人工接手狀態機 ──────────────────────
+#   mode=bot  ：AI 可回（或產草稿）
+#   mode=human：人工接手中，AI 一律不出聲，避免與店員在官方帳號後台打架。
+#   逾時復原＝human_until（config.ai.human_hold_hours，預設 4 小時）到點自動回 bot；
+#   店員也可在 CRM 手動交還。因為 LINE 不會把店員在官方 App 的回覆送進 webhook，
+#   我們無法自動察覺人工已接手，逾時是唯一的自動出口。
+
+def _conv_mode(uid: str) -> str:
+    """取得對話模式，順便處理逾時復原。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT mode, human_until FROM line_conversations WHERE line_user_id=%s",
+                    (uid,))
+        row = cur.fetchone()
+        if row is None:
+            cur.execute("INSERT IGNORE INTO line_conversations (line_user_id) VALUES (%s)", (uid,))
+            return "bot"
+        if row["mode"] == "human" and row["human_until"] and row["human_until"] <= datetime.now():
+            cur.execute("UPDATE line_conversations SET mode='bot', human_until=NULL, "
+                        "assigned_to=NULL, handoff_reason=NULL WHERE line_user_id=%s", (uid,))
+            log.info("人工接手逾時，對話交還 AI uid=%s…", uid[:12])
+            return "bot"
+        return row["mode"]
+
+
+def set_human(uid: str, reason: str, staff: Optional[str] = None) -> None:
+    """切到人工接手（AI 靜音），並設定自動復原時間。"""
+    hours = float(config.AI.get("human_hold_hours") or 4)
+    with _conn() as db, db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO line_conversations (line_user_id, mode, human_until, assigned_to, handoff_reason) "
+            "VALUES (%s,'human',DATE_ADD(NOW(), INTERVAL %s MINUTE),%s,%s) "
+            "ON DUPLICATE KEY UPDATE mode='human', "
+            "  human_until=DATE_ADD(NOW(), INTERVAL %s MINUTE), assigned_to=%s, handoff_reason=%s",
+            (uid, int(hours * 60), staff, reason, int(hours * 60), staff, reason))
+    log.info("轉人工 uid=%s… 原因=%s 由=%s", uid[:12], reason, staff or "系統")
+
+
+def set_bot(uid: str) -> None:
+    """交還 AI。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("UPDATE line_conversations SET mode='bot', human_until=NULL, "
+                    "assigned_to=NULL, handoff_reason=NULL WHERE line_user_id=%s", (uid,))
+
+
+def log_msg(uid: str, direction: str, source: str, text: str,
+            cid: Optional[int] = None, status: str = "new",
+            meta: Optional[str] = None) -> int:
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("INSERT IGNORE INTO line_conversations (line_user_id) VALUES (%s)", (uid,))
+        cur.execute("INSERT INTO line_messages "
+                    "(line_user_id, customer_id, direction, source, text, status, meta) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (uid, cid, direction, source, text[:5000], status, meta))
+        mid = cur.lastrowid      # ⚠ 必須在下一句 UPDATE 之前取，否則會拿到 0
+        cur.execute("UPDATE line_conversations SET last_msg_at=NOW() WHERE line_user_id=%s", (uid,))
+        return mid
+
+
+def _history(uid: str) -> List[Dict[str, str]]:
+    """取最近對話餵給模型（只取客戶說的與實際送出的回覆，不含未送出的草稿）。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT direction, source, text FROM line_messages "
+                    "WHERE line_user_id=%s AND (source='customer' OR status='sent') "
+                    "ORDER BY id DESC LIMIT 6", (uid,))
+        rows = list(reversed(cur.fetchall()))
+    return [{"role": "user" if r["direction"] == "in" else "assistant", "content": r["text"]}
+            for r in rows]
+
+
+def _ai_worker(uid: str, text: str, rt: str, cid: Optional[int]) -> None:
+    """背景執行：webhook 已回 200，這裡慢慢算再 reply（reply token 約 1 分鐘內有效）。"""
+    try:
+        res = ai_chat.answer(text, _history(uid))
+    except Exception:  # noqa: BLE001
+        log.exception("AI 產生回覆失敗")
+        return
+    auto = bool(config.AI.get("auto_reply"))
+    meta = f"{res['kind']}/{res.get('reason') or '-'} {res.get('elapsed')}s"
+    if res["kind"] in ("handoff", "timeout"):
+        set_human(uid, res.get("reason") or "ai")     # 需要人接手的，AI 先閉嘴
+    if auto:
+        ok = reply(rt, [res["text"]])
+        log_msg(uid, "out", "ai", res["text"], cid,
+                status="sent" if ok else "discarded", meta=meta)
+    else:
+        # 第一階段：不直接回客戶，存成草稿讓店員在 CRM 審核後使用
+        log_msg(uid, "out", "ai_draft", res["text"], cid, status="new", meta=meta)
+    log.info("AI %s uid=%s… %s", "已回覆" if auto else "草稿已產生", uid[:12], meta)
+
+
+_MEDIA_API = "https://api-data.line.me/v2/bot"
+_MEDIA_MAX = 10 * 1024 * 1024          # 單檔上限 10MB，超過只留紀錄不存檔
+
+
+def _fetch_content(mid: str) -> Optional[Tuple[bytes, str]]:
+    """下載客戶傳來的訊息內容。
+
+    ⚠ LINE 只保留一段時間，必須在收到 webhook 的當下抓，不能等店員想看才抓。
+    """
+    token = config.LINE.get("channel_access_token") or ""
+    if not token or not mid:
+        return None
+    req = urllib.request.Request(f"{_MEDIA_API}/message/{mid}/content",
+                                 headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read(_MEDIA_MAX + 1)
+            mime = r.headers.get("Content-Type", "application/octet-stream").split(";")[0]
+    except Exception as e:  # noqa: BLE001
+        log.warning("下載 LINE 內容失敗 mid=%s: %s", mid, e)
+        return None
+    if len(data) > _MEDIA_MAX:
+        log.warning("LINE 內容超過 %dMB，不存檔 mid=%s", _MEDIA_MAX // 1024 // 1024, mid)
+        return None
+    return data, mime
+
+
+def _media_worker(uid: str, msg_id: str, row_id: int, cid: Optional[int], rt: str) -> None:
+    """背景：下載圖片 → 存磁碟 → 交給好卡的視覺模型產草稿。"""
+    got = _fetch_content(msg_id)
+    if not got:
+        return
+    data, mime = got
+    rel = config.save_file("line_media", data, mime, uid)
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("UPDATE line_messages SET rel_path=%s, mime=%s WHERE id=%s",
+                    (rel, mime, row_id))
+    log.info("已存客戶圖片 uid=%s… %s", uid[:12], rel)
+
+    if not ai_chat.enabled() or _conv_mode(uid) == "human":
+        return
+    res = ai_chat.describe_image(str(config.abs_path(rel)), mime)
+    meta = f"{res['kind']}/{res.get('reason') or '-'} {res.get('elapsed')}s"
+    if res["kind"] in ("handoff", "timeout"):
+        set_human(uid, res.get("reason") or "vision")
+    if config.AI.get("auto_reply"):
+        ok = reply(rt, [res["text"]])
+        log_msg(uid, "out", "ai", res["text"], cid,
+                status="sent" if ok else "discarded", meta=meta)
+    else:
+        log_msg(uid, "out", "ai_draft", res["text"], cid, status="new", meta=meta)
+    log.info("圖片草稿已產生 uid=%s… %s", uid[:12], meta)
+
+
+def _ai_dispatch(uid: str, text: str, rt: str, cid: Optional[int]) -> bool:
+    """決定要不要讓 AI 出手。回 True 表示 AI 已接手這則訊息。"""
+    if not ai_chat.enabled():
+        return False
+    if _conv_mode(uid) == "human":
+        log.info("人工接手中，AI 不回應 uid=%s…", uid[:12])
+        return False
+    threading.Thread(target=_ai_worker, args=(uid, text, rt, cid), daemon=True).start()
+    return bool(config.AI.get("auto_reply"))   # 只有自動回覆模式才算「已回應客戶」
 
 
 def _handle_text(ev: Dict[str, Any]) -> None:
@@ -167,11 +352,17 @@ def _handle_text(ev: Dict[str, Any]) -> None:
         cur.execute("SELECT id, name FROM customers WHERE line_user_id=%s", (uid,))
         bound = cur.fetchone()
         if bound:
-            return   # 已綁定者自由留言不自動回（留給門市人員在官方帳號後台回覆）
+            # 已綁定者：訊息入庫供 CRM 檢視，交給 AI（自動回覆或產草稿）。
+            # AI 關閉／人工接手中＝不自動回，留給門市人員在官方帳號後台回覆。
+            log_msg(uid, "in", "customer", text, bound["id"])
+            _ai_dispatch(uid, text, rt, bound["id"])
+            return
         _upsert_follower(uid)   # 未綁定者任何互動都進店員配對名單
         ph = _norm_phone(text)
         if not _PHONE_RE.match(ph):
-            reply(rt, [WELCOME])
+            log_msg(uid, "in", "customer", text)
+            if not _ai_dispatch(uid, text, rt, None):
+                _maybe_hint(uid, rt)    # AI 沒回＝仍給一次性提示，之後靜音
             return
         # 比對建檔手機（容忍資料庫裡有 - 或空白的舊格式）
         cur.execute("SELECT id, name, line_user_id FROM customers "
@@ -306,10 +497,134 @@ def lp_booking_submit(body: Dict[str, Any] = Body(...)):
     return {"ok": True}
 
 
+# ── 預約提醒（前一天推播＋客戶確認按鈕）─────────────────────
+#   排程：每日 config.line.reminder_hour 點掃 reminder_days_ahead 天後的預約，
+#   對已綁 LINE 且未取消、且尚未提醒過（reminded_at IS NULL）者推播一則樣板訊息，
+#   附「✅ 確認前往」一顆 postback 按鈕（改期/取消不做按鈕，請客戶留言由店員處理）。
+#   客戶按下 → booking_requests.confirm_status/confirmed_at 記錄，店員頁即時看得到。
+#   佔推播額度（1 則/筆），故 reminded_at 為冪等鎖：同一筆永遠只提醒一次。
+
+def _slot_label(d: date, hour: int) -> str:
+    return (f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+            f"（{_WD[d.weekday()]}）{hour:02d}:00")
+
+
+def _reminder_message(b: Dict[str, Any]) -> Dict[str, Any]:
+    """組提醒用的 buttons 樣板訊息（無 title 時 text 上限 160 字）。"""
+    slot = _slot_label(b["req_date"], b["req_hour"])
+    name = b.get("contact_name") or ""
+    text = (f"【預約提醒】{name} 您好\n"
+            f"您在 睿聲助聽器-中正門市 的預約時間為\n{slot}\n"
+            "確定前往請按下方按鈕；如需改期或取消，請直接留言告知門市人員。")[:160]
+    return {
+        "type": "template",
+        "altText": f"【預約提醒】{slot} 睿聲助聽器-中正門市",
+        "template": {"type": "buttons", "text": text, "actions": [
+            {"type": "postback", "label": "✅ 確認前往",
+             "data": f"action=bkok&id={b['id']}", "displayText": "確認前往"},
+        ]},
+    }
+
+
+def send_booking_reminder(bid: int, force: bool = False) -> Dict[str, Any]:
+    """對單筆預約送出提醒。回 {ok, msg}；已提醒過且非 force 一律不重送。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT id, line_user_id, contact_name, req_date, req_hour, "
+                    "       status, reminded_at "
+                    "FROM booking_requests WHERE id=%s", (bid,))
+        b = cur.fetchone()
+        if b is None:
+            return {"ok": False, "msg": "找不到這筆預約留言。"}
+        if not b["line_user_id"]:
+            return {"ok": False, "msg": "這筆預約沒有 LINE 來源，無法推播提醒。"}
+        if b["status"] == "cancelled":
+            return {"ok": False, "msg": "這筆預約已取消，不送提醒。"}
+        if b["reminded_at"] and not force:
+            return {"ok": False, "msg": "這筆預約已送過提醒（避免重複佔用推播額度）。"}
+        if not push_messages(b["line_user_id"], [_reminder_message(b)]):
+            return {"ok": False, "msg": "LINE 推播失敗（或目前為開發模式未真發）。"}
+        cur.execute("UPDATE booking_requests SET reminded_at=NOW() WHERE id=%s", (bid,))
+    log.info("預約提醒已推播 #%s %s %s", bid, b["contact_name"],
+             _slot_label(b["req_date"], b["req_hour"]))
+    return {"ok": True, "msg": "提醒已送出。"}
+
+
+def run_booking_reminders(target: Optional[date] = None) -> Dict[str, Any]:
+    """掃指定日期（預設 reminder_days_ahead 天後）的待提醒預約並逐筆推播。"""
+    if target is None:
+        days = int(config.LINE.get("reminder_days_ahead") or 1)
+        target = date.today() + timedelta(days=days)
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT id FROM booking_requests "
+                    "WHERE req_date=%s AND status <> 'cancelled' "
+                    "AND line_user_id IS NOT NULL AND reminded_at IS NULL "
+                    "ORDER BY req_hour, id", (target,))
+        ids = [r["id"] for r in cur.fetchall()]
+    sent = sum(1 for i in ids if send_booking_reminder(i)["ok"])
+    log.info("預約提醒排程：目標日 %s，待提醒 %d 筆，成功 %d 筆",
+             target, len(ids), sent)
+    return {"date": target.isoformat(), "pending": len(ids), "sent": sent}
+
+
+_sched_started = False
+
+
+def start_reminder_scheduler() -> None:
+    """背景執行緒：每 60 秒檢查，到 reminder_hour 整點該日跑一次（比照 OCR 看門狗）。"""
+    global _sched_started
+    if _sched_started or not config.LINE.get("reminder_enabled", True):
+        return
+    _sched_started = True
+    hour = int(config.LINE.get("reminder_hour") or 18)
+
+    def _loop() -> None:
+        last: Optional[date] = None      # 已跑過的日期（同日不重跑）
+        while True:
+            try:
+                now = datetime.now()
+                if now.hour >= hour and last != now.date():
+                    last = now.date()
+                    run_booking_reminders()
+            except Exception:  # noqa: BLE001 — 排程不可拖垮服務
+                log.exception("預約提醒排程執行失敗")
+            time.sleep(60)
+
+    threading.Thread(target=_loop, daemon=True, name="booking-reminder").start()
+    log.info("預約提醒排程已啟動（每日 %02d:00 掃 %s 天後的預約）",
+             hour, config.LINE.get("reminder_days_ahead") or 1)
+
+
+def _handle_booking_reply(uid: str, rt: str, bid: str) -> None:
+    """客戶按下提醒訊息的「確認前往」：只認自己的預約，寫入 confirm_status。
+    改期／取消不做按鈕（客戶留言由門市人員在官方帳號後台處理）。"""
+    try:
+        bid_i = int(bid)
+    except (TypeError, ValueError):
+        return
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT id, contact_name, req_date, req_hour, status "
+                    "FROM booking_requests WHERE id=%s AND line_user_id=%s",
+                    (bid_i, uid))
+        b = cur.fetchone()
+        if b is None:      # 非本人的預約（或已刪）：不透露任何資訊
+            reply(rt, ["查無這筆預約，請直接留言由門市人員為您處理。"])
+            return
+        if b["status"] == "cancelled":
+            reply(rt, ["這筆預約已取消，如需重新預約請點選單「我要預約」。"])
+            return
+        cur.execute("UPDATE booking_requests SET confirm_status='confirmed', "
+                    "confirmed_at=NOW() WHERE id=%s", (bid_i,))
+    slot = _slot_label(b["req_date"], b["req_hour"])
+    log.info("預約回覆 #%s 確認前往 uid=%s…", bid_i, uid[:12])
+    reply(rt, [f"已收到您的確認 ✅\n{slot} 我們在門市恭候您的光臨，謝謝！\n"
+               "如需改期或取消，請直接在此留言，門市人員會為您處理。"])
+
+
 # ── 圖文選單 postback（六顆按鈕；data 形如 action=booking）────
 def _my_bookings_text(uid: str) -> str:
     with _conn() as db, db.cursor() as cur:
-        cur.execute("SELECT req_date, req_hour, note, status FROM booking_requests "
+        cur.execute("SELECT req_date, req_hour, note, status, confirm_status "
+                    "FROM booking_requests "
                     "WHERE line_user_id=%s AND req_date >= CURDATE() "
                     "AND status <> 'cancelled' "
                     "ORDER BY req_date, req_hour LIMIT 5", (uid,))
@@ -317,11 +632,12 @@ def _my_bookings_text(uid: str) -> str:
     if not rows:
         return "您目前沒有預約。點選單「我要預約」即可線上預約 😊"
     st = {"new": "（待門市確認）", "handled": "（已確認）"}
+    cf = {"confirmed": "✅已回覆前往"}
     lines = ["📅 您的預約："]
     for r in rows:
-        d = r["req_date"]
-        lines.append(f"‧{d.year - 1911}/{d.month:02d}/{d.day:02d}（{_WD[d.weekday()]}）"
-                     f"{r['req_hour']:02d}:00{st.get(r['status'], '')}"
+        lines.append(f"‧{_slot_label(r['req_date'], r['req_hour'])}"
+                     f"{st.get(r['status'], '')}"
+                     + (f"{cf[r['confirm_status']]}" if r["confirm_status"] in cf else "")
                      + (f"—{r['note']}" if r["note"] else ""))
     lines.append("\n如需更改或取消，請直接留言告知門市人員。")
     return "\n".join(lines)
@@ -331,8 +647,12 @@ def _handle_postback(ev: Dict[str, Any]) -> None:
     uid = (ev.get("source") or {}).get("userId")
     rt = ev.get("replyToken") or ""
     data = (ev.get("postback") or {}).get("data") or ""
-    act = dict(p.split("=", 1) for p in data.split("&") if "=" in p).get("action")
+    kv = dict(p.split("=", 1) for p in data.split("&") if "=" in p)
+    act = kv.get("action")
     if not uid:
+        return
+    if act == "bkok":                   # 預約提醒訊息的「確認前往」
+        _handle_booking_reply(uid, rt, kv.get("id", ""))
         return
     log.info("圖文選單點擊 action=%s uid=%s…", act, uid[:12])
     with _conn() as db, db.cursor() as cur:   # 未綁定者互動也要進配對名單
@@ -358,18 +678,33 @@ def _handle_postback(ev: Dict[str, Any]) -> None:
 def _handle_event(ev: Dict[str, Any]) -> None:
     t = ev.get("type")
     uid = (ev.get("source") or {}).get("userId")
-    if t == "follow":                       # 加好友 → 記入配對名單＋歡迎詞
+    if t == "follow":                       # 加好友 → 記入配對名單＋歡迎詞（完整版只在這裡出現）
         _upsert_follower(uid)
         reply(ev.get("replyToken") or "", [WELCOME])
     elif t == "message":
-        if (ev.get("message") or {}).get("type") == "text":
+        mtype = (ev.get("message") or {}).get("type")
+        if mtype == "text":
             _handle_text(ev)
-        else:                               # 貼圖/圖片等：未綁定者也要進配對名單
+        else:
+            # 非文字訊息。**圖片**：下載存磁碟並交給「好卡 0002」的視覺模型看圖產草稿
+            #   （⚠ 絕不可送客服 AI 那張 573，vision 推論必崩且靜默）。
+            # 其餘型別（貼圖/語音/影片/檔案/位置）只記一筆，內容由店員在官方後台查看。
             with _conn() as db, db.cursor() as cur:
                 cur.execute("SELECT id FROM customers WHERE line_user_id=%s", (uid,))
-                if cur.fetchone() is None:
-                    _upsert_follower(uid)
-                    reply(ev.get("replyToken") or "", [WELCOME])
+                row = cur.fetchone()
+            cid = row["id"] if row else None
+            label = {"image": "[客戶傳了圖片]", "sticker": "[貼圖]", "audio": "[語音訊息]",
+                     "video": "[影片]", "file": "[檔案]", "location": "[位置資訊]"}.get(
+                         mtype, f"[{mtype}]")
+            rid = log_msg(uid, "in", "customer", label, cid,
+                          meta=None if mtype == "image" else "非文字訊息，未送 AI")
+            if mtype == "image":
+                threading.Thread(target=_media_worker, daemon=True, args=(
+                    uid, (ev.get("message") or {}).get("id") or "", rid, cid,
+                    ev.get("replyToken") or "")).start()
+            if row is None:
+                _upsert_follower(uid)
+                _maybe_hint(uid, ev.get("replyToken") or "")
     elif t == "postback":
         _handle_postback(ev)   # 圖文選單六顆按鈕
     elif t == "unfollow":                   # 封鎖：保留綁定（重加好友即恢復），只記 log

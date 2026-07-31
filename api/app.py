@@ -44,6 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
+from api import line_bot
 from api.line_bot import router as line_router
 
 # DB 連線參數取自 config（config.toml / 環境變數），機密不再寫死於程式碼
@@ -309,6 +310,7 @@ _PURCHASE_ENUMS = {
 def create_app() -> FastAPI:
     app = FastAPI(title="y1crm", docs_url="/api/docs", redoc_url=None)
     app.include_router(line_router)   # LINE webhook（api/line_bot.py；簽章驗證、不走 session）
+    line_bot.start_reminder_scheduler()   # 預約提醒背景排程（每日固定時間推播）
 
     # ── MPA：每個主功能一頁（layout 繼承共用 header/CSS/JS）────────
     #   程式(static/js)與 UI(templates)分離；切換主功能＝瀏覽器導頁＝記憶體歸零，
@@ -349,6 +351,10 @@ def create_app() -> FastAPI:
     @app.get("/purchases")
     def page_purchases(request: Request):
         return _page(request, "purchases.html", "purchases")
+
+    @app.get("/line-chat")
+    def page_line_chat(request: Request):
+        return _page(request, "line_chat.html", "line-chat")
 
     @app.get("/board")
     def page_board(request: Request):
@@ -816,6 +822,120 @@ def create_app() -> FastAPI:
                 cur.execute("UPDATE booking_requests SET status=%s, "
                             "handled_by=%s, handled_at=NOW() WHERE id=%s",
                             (st, user["realname"], bid))
+        return {"ok": True}
+
+    @app.post("/api/bookings/{bid}/remind")
+    def remind_booking(request: Request, bid: int, body: Dict[str, Any] = Body(None)):
+        """手動補送預約提醒（客戶端收到附確認按鈕的訊息）。force=true 可重送。"""
+        _require_menu(_current_user(request), "customers")
+        r = line_bot.send_booking_reminder(bid, force=bool((body or {}).get("force")))
+        if not r["ok"]:
+            raise HTTPException(422, r["msg"])
+        return r
+
+    @app.post("/api/bookings/run-reminders")
+    def run_booking_reminders(request: Request, body: Dict[str, Any] = Body(None)):
+        """手動觸發整批提醒（預設同排程：reminder_days_ahead 天後）。"""
+        _require_menu(_current_user(request), "customers")
+        d = _clean((body or {}).get("date"))
+        return line_bot.run_booking_reminders(
+            date.fromisoformat(d) if d else None)
+
+    # ── LINE 客服對話（AI 草稿 + 人工接手）────────────────────
+    @app.get("/api/line/conversations")
+    def line_conversations(request: Request):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute(
+                # 人工接手逾時只在客戶下次來訊時才實際復原（line_bot._conv_mode），
+                # 這裡先算出「有效模式」，避免清單顯示成還在人工接手中。
+                "SELECT v.line_user_id, "
+                "       CASE WHEN v.mode='human' AND (v.human_until IS NULL "
+                "                 OR v.human_until > NOW()) THEN 'human' ELSE 'bot' END AS mode, "
+                "       v.human_until, v.assigned_to, "
+                "       v.handoff_reason, v.last_msg_at, "
+                "       f.display_name, f.picture_url, c.id AS customer_id, c.name AS customer_name, "
+                "       (SELECT text FROM line_messages m WHERE m.line_user_id=v.line_user_id "
+                "          ORDER BY m.id DESC LIMIT 1) AS last_text, "
+                "       (SELECT COUNT(*) FROM line_messages m WHERE m.line_user_id=v.line_user_id "
+                "          AND m.source='ai_draft' AND m.status='new') AS drafts "
+                "FROM line_conversations v "
+                "LEFT JOIN line_followers f ON f.line_user_id = v.line_user_id "
+                "LEFT JOIN customers c ON c.line_user_id = v.line_user_id "
+                "ORDER BY v.last_msg_at DESC, v.updated_at DESC LIMIT 100")
+            return {"rows": [_row_json(r) for r in cur.fetchall()],
+                    "auto_reply": bool(config.AI.get("auto_reply")),
+                    "ai_enabled": bool(config.AI.get("enabled"))}
+
+    @app.get("/api/line/conversations/{uid}/messages")
+    def line_conv_messages(request: Request, uid: str):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id, direction, source, text, status, meta, created_at, "
+                        "       (rel_path IS NOT NULL) AS has_media, mime "
+                        "FROM line_messages WHERE line_user_id=%s "
+                        "ORDER BY id DESC LIMIT 100", (uid,))
+            rows = [_row_json(r) for r in reversed(cur.fetchall())]
+        return {"rows": rows}
+
+    @app.get("/api/line/media/{mid}")
+    def line_media(request: Request, mid: int):
+        """客戶在 LINE 傳來的圖片（需登入；磁碟存放，DB 只有相對路徑）。"""
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT rel_path, mime FROM line_messages WHERE id=%s", (mid,))
+            row = cur.fetchone()
+        if row is None or not row["rel_path"]:
+            raise HTTPException(404, "找不到這個檔案。")
+        p = config.abs_path(row["rel_path"])
+        if not p.exists():
+            raise HTTPException(404, "檔案已不存在。")
+        return FileResponse(p, media_type=row["mime"] or "application/octet-stream",
+                            content_disposition_type="inline")
+
+    @app.put("/api/line/conversations/{uid}/mode")
+    def line_conv_mode(request: Request, uid: str, body: Dict[str, Any] = Body(...)):
+        """店員手動接手／交還 AI。接手後 AI 靜音，逾時（config.ai.human_hold_hours）自動復原。"""
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        mode = _clean(body.get("mode"))
+        if mode not in ("bot", "human"):
+            raise HTTPException(422, "mode 須為 bot 或 human。")
+        if mode == "human":
+            line_bot.set_human(uid, "staff", user["realname"])
+        else:
+            line_bot.set_bot(uid)
+        return {"ok": True, "mode": mode}
+
+    @app.put("/api/line/drafts/{mid}")
+    def line_draft_update(request: Request, mid: int, body: Dict[str, Any] = Body(...)):
+        """草稿處理：discarded＝捨棄；sent＝店員已用（可選 push=true 直接由系統送出）。
+
+        ⚠ push=true 走 Messaging API 推播，佔每月免費額度；
+          店員在官方帳號後台手動回覆則不計費，故預設只標記不推播。
+        """
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        st = _clean(body.get("status"))
+        if st not in ("sent", "discarded"):
+            raise HTTPException(422, "status 須為 sent 或 discarded。")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id, line_user_id, text, source, status "
+                        "FROM line_messages WHERE id=%s", (mid,))
+            row = cur.fetchone()
+            if row is None or row["source"] != "ai_draft":
+                raise HTTPException(404, "找不到這則草稿。")
+            if row["status"] != "new":
+                raise HTTPException(422, "這則草稿已處理過。")
+            text = _clean(body.get("text")) or row["text"]      # 店員可改寫後再用
+            if st == "sent" and body.get("push"):
+                if not line_bot.push(row["line_user_id"], [text]):
+                    raise HTTPException(502, "LINE 推播失敗，請改用官方帳號後台回覆。")
+                cur.execute("INSERT INTO line_messages (line_user_id, direction, source, text, "
+                            "status, meta) VALUES (%s,'out','staff',%s,'sent',%s)",
+                            (row["line_user_id"], text, f"由 {user['realname']} 送出"))
+            cur.execute("UPDATE line_messages SET status=%s, text=%s WHERE id=%s",
+                        (st, text, mid))
         return {"ok": True}
 
     # ── 客戶 ──────────────────────────────────────────────────

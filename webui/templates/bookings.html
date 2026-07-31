@@ -14,13 +14,16 @@
       <table>
         <thead><tr>
           <th>留言時間</th><th>稱呼</th><th>電話</th><th>預約時間</th>
-          <th>需求</th><th>LINE / 客戶</th><th>狀態</th><th style="width:11rem;">操作</th>
+          <th>需求</th><th>LINE / 客戶</th><th>客戶回覆</th><th>狀態</th><th style="width:14rem;">操作</th>
         </tr></thead>
         <tbody id="bk-body"></tbody>
       </table>
     </div>
     <p class="hint" style="margin-top:.8rem;">
-      客戶在 LINE 輸入「預約」即可取得表單連結；送出後這裡即時出現。電話確認後請按「已處理」。
+      客戶在 LINE 輸入「預約」即可取得表單連結；送出後這裡即時出現。電話確認後請按「已處理」。<br>
+      預約前一天系統會自動推播提醒（附「確認前往」按鈕），客戶按下後「客戶回覆」欄即更新；
+      客戶若要改期或取消會直接留言，請留意官方帳號後台。
+      也可按「送提醒」手動補送（每筆只送一次，避免佔用推播額度）。
     </p>
   </div>
 {% endblock %}

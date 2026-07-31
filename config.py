@@ -29,6 +29,7 @@ _DEFAULTS: dict = {
         "form_images": "forms",
         "staff_photos": "staff",
         "product_attachments": "products",
+        "line_media": "line",       # LINE 客戶傳來的圖片/檔案
     },
     "db": {
         "host": "localhost", "user": "root", "password": "",
@@ -44,6 +45,22 @@ _DEFAULTS: dict = {
         "channel_access_token": "",   # 未設＝開發模式：訊息只記 log 不真發
         "liff_id": "",
         "public_base_url": "",
+        # 預約提醒排程：前一天的 reminder_hour 點推播給客戶（附一顆「確認前往」按鈕）
+        "reminder_enabled": True,
+        "reminder_hour": 18,          # 0–23，整點；每日只跑一次
+        "reminder_days_ahead": 1,     # 提前幾天提醒（1＝提醒明天的預約）
+    },
+    # LINE 客服 AI（本機推論；⚠ 只能送純文字，573 那張卡做影像推論會靜默崩潰）
+    "ai": {
+        "enabled": True,
+        "url": "http://127.0.0.1:11435",   # ollama-573（純文字專用實例）
+        "model": "qwen3:32b",
+        "timeout_secs": 30,     # 逾時就回道歉文；LINE reply token 約 1 分鐘失效，不宜貼邊
+        "auto_reply": False,    # False＝只產生草稿給店員審核（第一階段）；True＝直接回客戶
+        "human_hold_hours": 4,  # 人工接手後多久自動交還 AI（另外隔日開店也會復原）
+        "max_chars": 150,       # 回覆長度上限（提示詞用）
+        # 客戶傳來的圖片：走「好卡」config.OCR（11434, qwen3-vl），不是上面的 573
+        "vision_timeout_secs": 60,
     },
     "server": {"host": "0.0.0.0", "port": 8004},
     # 店面狀態看板（免登入電視牆）：key 未設＝看板停用；URL 帶 ?k=<key> 存取
@@ -94,9 +111,10 @@ OCR: dict = _CFG["ocr"]
 SERVER: dict = _CFG["server"]
 LINE: dict = _CFG["line"]
 BOARD: dict = _CFG["board"]
+AI: dict = _CFG["ai"]
 
 _STORAGE_KINDS = ("todo_attachments", "customer_photos", "form_images", "staff_photos",
-                  "product_attachments")
+                  "product_attachments", "line_media")
 
 
 def db_params() -> dict:

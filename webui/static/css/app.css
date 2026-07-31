@@ -489,3 +489,64 @@
             background: rgba(0,0,0,.55); color: #fff; font-size: .95rem; line-height: 1; }
   .pa-del:hover { background: var(--danger); }
   .pa-empty { color: var(--muted); font-size: .9rem; padding: .4rem 0; }
+
+  /* ── LINE 客服對話頁（左清單／右訊息串；手機二選一顯示）────── */
+  .lc-wrap { display: grid; grid-template-columns: 17rem 1fr; gap: 1rem;
+             border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+             height: min(66vh, 34rem); }
+  .lc-list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--bg); }
+  .lc-item { display: flex; align-items: flex-start; gap: .55rem; width: 100%; text-align: left;
+             padding: .6rem .7rem; cursor: pointer; background: transparent; color: var(--text);
+             border: none; border-bottom: 1px solid var(--line); font: inherit; }
+  .lc-item:hover { background: var(--card); }
+  .lc-item.on { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+  .lc-ava { width: 2.1rem; height: 2.1rem; border-radius: 50%; flex: none; overflow: hidden;
+            background: var(--card); border: 1px solid var(--line);
+            display: grid; place-items: center; font-size: .9rem; color: var(--muted); }
+  .lc-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .lc-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .lc-item-top { display: flex; align-items: center; gap: .35rem; }
+  .lc-item-top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lc-last { color: var(--muted); font-size: .85rem; line-height: 1.35;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lc-time { color: var(--muted); font-size: .72rem; flex: none; white-space: nowrap; }
+  .lc-tag { padding: .05rem .45rem; border-radius: 999px; font-size: .72rem; font-weight: 600;
+            white-space: nowrap; border: 1px solid transparent; }
+  .lc-tag.human { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-line); }
+  .lc-tag.bot { background: var(--info-bg); color: var(--info-text); }
+  .lc-state { font-size: .85rem; font-weight: 600; padding: .15rem .6rem; border-radius: 999px;
+              background: var(--info-bg); color: var(--info-text); white-space: nowrap; }
+  .lc-state.on { background: var(--ok-bg); color: var(--ok-text); }
+  .lc-state.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .lc-state.off { background: var(--danger-bg); color: var(--danger); }
+  /* 右欄：標頭固定、訊息串自己捲 */
+  .lc-pane { display: flex; flex-direction: column; min-width: 0; }
+  .lc-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+             padding: .55rem .8rem; border-bottom: 1px solid var(--line); }
+  .lc-head-main { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .lc-head-state { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-left: auto; }
+  .lc-back { display: none; }
+  .lc-thread { flex: 1; overflow-y: auto; padding: .8rem; background: var(--bg); }
+  .lc-msg { display: flex; margin-bottom: .6rem; }
+  .lc-msg.out { justify-content: flex-end; }
+  .lc-bubble { max-width: min(80%, 30rem); display: flex; flex-direction: column; gap: .2rem;
+               padding: .5rem .75rem; border-radius: 10px; background: var(--card);
+               border: 1px solid var(--line); word-break: break-word; }
+  .lc-msg.out .lc-bubble { background: var(--brand-soft); border-color: var(--brand); }
+  .lc-msg.draft .lc-bubble { opacity: .6; border-style: dashed; }
+  .lc-src { font-size: .72rem; font-weight: 600; color: var(--muted); }
+  .lc-text { white-space: pre-wrap; }
+  .lc-img { max-width: 100%; max-height: 14rem; border-radius: 6px; cursor: zoom-in; display: block; }
+  .lc-meta { font-size: .7rem; color: var(--muted); }
+  .lc-fail { font-size: .78rem; color: var(--danger); background: var(--danger-bg);
+             border-radius: 4px; padding: .15rem .4rem; }
+  /* 手機：清單與訊息串二選一（切主功能才導頁，頁內切檢視省記憶體）*/
+  @media (max-width: 760px) {
+    .lc-wrap { grid-template-columns: 1fr; height: min(72vh, 32rem); }
+    .lc-list { border-right: none; }
+    .lc-wrap .lc-pane { display: none; }
+    .lc-wrap.show-pane .lc-list { display: none; }
+    .lc-wrap.show-pane .lc-pane { display: flex; }
+    .lc-back { display: inline-flex; }
+    .lc-head-state { width: 100%; margin-left: 0; }
+  }

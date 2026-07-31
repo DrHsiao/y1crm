@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}LINE 客服 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── LINE 客服對話（AI 自動回覆紀錄＋人工接手）───────────── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <h3 style="flex:1;">LINE 客服<span class="lh" id="lc-count"></span></h3>
+      <span id="lc-ai-state" class="lc-state"></span>
+    </div>
+
+    <div class="lc-wrap" id="lc-wrap">
+      <!-- 左：對話清單（手機＝單獨一頁，點進去換成訊息串）-->
+      <aside class="lc-list" id="lc-list"></aside>
+
+      <!-- 右：訊息串 -->
+      <section class="lc-pane" id="lc-pane">
+        <div class="lc-head" id="lc-head"></div>
+        <div class="lc-thread" id="lc-thread">
+          <p class="hint" style="padding:1rem;">請從左側挑一則對話。</p>
+        </div>
+      </section>
+    </div>
+
+    <p class="hint" style="margin-top:.8rem;">
+      客戶在 LINE 的訊息與 AI 回覆都會記在這裡（每 20 秒自動更新）。<br>
+      要自己接手時按「我來接手」，AI 會立刻閉嘴，逾時未動作會自動交還 AI；
+      <b>回覆請在 LINE 官方帳號 App 操作</b>（後台人工回覆不計推播額度，且 LINE 不會把你的回覆送進本系統，故這裡看不到店員訊息）。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/line_chat.js?v={{ v }}"></script>{% endblock %}

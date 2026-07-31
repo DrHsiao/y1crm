@@ -34,6 +34,22 @@ channel_secret       = "CHANGE_ME"
 channel_access_token = ""   # 未設＝開發模式：訊息只記 log 不真發
 liff_id              = ""
 public_base_url      = "https://example.com"
+# 預約提醒排程（前一天推播給客戶，訊息附一顆「確認前往」按鈕）
+reminder_enabled     = true
+reminder_hour        = 18    # 0–23 整點，每日只跑一次
+reminder_days_ahead  = 1     # 1＝提醒明天的預約
+
+[ai]
+# LINE 客服 AI（本機 ollama-573 純文字實例；⚠ 絕不可送影像，那張卡 vision 推論會崩）
+enabled           = true
+url               = "http://127.0.0.1:11435"
+model             = "qwen3:32b"
+timeout_secs      = 30      # 逾時回道歉文；LINE reply token 約 1 分鐘失效，不宜貼邊
+auto_reply        = false   # false＝只產草稿給店員審核（第一階段）；true＝直接回客戶
+human_hold_hours  = 4       # 人工接手後多久自動交還 AI
+max_chars         = 150
+# 客戶傳來的圖片：交給好卡（[ocr] 的 11434 / qwen3-vl）看圖產草稿，573 絕不碰影像
+vision_timeout_secs = 60
 
 [board]
 # 店面狀態看板（免登入電視牆）：/board?k=<key>；留空＝看板整組停用

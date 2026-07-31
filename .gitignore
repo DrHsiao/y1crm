@@ -8,8 +8,9 @@ venv/
 __pycache__/
 *.pyc
 
-# Claude Code 本機設定
+# Claude Code 本機設定（含寫入時產生的暫存檔，勿再誤入版控）
 .claude/settings.local.json
+.claude/settings.local.json.tmp.*
 
 # 舊 Blazor 留底：只保留原始碼，IDE 快取/建置產物不進版控
 archive/**/.vs/
