@@ -112,7 +112,15 @@ LINE 只吃 443 且不可帶自訂 port，故 IIS 上以 ARR 規則只放行兩�
 
 `subsidy_applications`、`follow_up_reminders` 目前還沒有管理 UI（行事曆為唯讀顯示提醒）。
 
-⚠ 本專案沒有 migration／seed 檔，建表與 `menus`、`menu_permissions`、`codes` 的內容都是
-直接對 DB 操作的。換機器部署時這些要手動補。
+⚠ 本專案沒有 migration 機制，建表多是直接對 DB 操作的，換機器部署要自行補。
+目前只有導覽選單有種子腳本：
+
+```bash
+./venv/bin/python scripts/seed_menus.py --dry-run   # 先看會做什麼
+./venv/bin/python scripts/seed_menus.py             # 補齊 menus / menu_permissions
+```
+
+可重跑不重複，**預設只新增不覆蓋**（店裡手動調過的標題/順序不會被蓋掉，
+要以腳本為準才加 `--sync`）。`codes` 表的內容尚未種子化。
 
 紙本表單參考：`doc/form1.jpg`。
