@@ -1,0 +1,16 @@
+[Unit]
+Description=Preload ollama models into VRAM after boot (OCR on good card + LINE AI on 573)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/john/y1crm/scripts/gpu/ollama_warmup.sh
+TimeoutStartSec=1800
+RemainAfterExit=yes
+# 冷載入慢（HDD RAID1），失敗自動重試一次
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

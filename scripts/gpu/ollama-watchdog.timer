@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ollama model watchdog every 10 minutes
+
+[Timer]
+# 開機預熱（ollama-warmup.service，約 8 分鐘）跑完之後才開始盯
+OnBootSec=15min
+OnUnitActiveSec=10min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Watchdog: keep resident ollama models in VRAM (OCR on good card + LINE AI on 573)
+After=docker.service
+Wants=ollama-watchdog.timer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/john/y1crm/scripts/gpu/ollama_watchdog.py
+# 冷載入最慢約 455s，兩個實例都要載時要更久；別讓 systemd 中途砍掉
+TimeoutStartSec=2700
