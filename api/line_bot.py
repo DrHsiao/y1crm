@@ -236,7 +236,8 @@ def log_msg(uid: str, direction: str, source: str, text: str,
         cur.execute("INSERT INTO line_messages "
                     "(line_user_id, customer_id, direction, source, text, status, meta) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (uid, cid, direction, source, text[:5000], status, meta))
+                    (uid, cid, direction, source, text[:5000], status,
+                     (meta or None) and meta[:255]))   # meta 欄位 varchar(255)
         mid = cur.lastrowid      # ⚠ 必須在下一句 UPDATE 之前取，否則會拿到 0
         cur.execute("UPDATE line_conversations SET last_msg_at=NOW() WHERE line_user_id=%s", (uid,))
         return mid
@@ -316,16 +317,19 @@ def _media_worker(uid: str, msg_id: str, row_id: int, cid: Optional[int], rt: st
     if not ai_chat.enabled() or _conv_mode(uid) == "human":
         return
     res = ai_chat.describe_image(str(config.abs_path(rel)), mime)
+    auto = bool(config.AI.get("auto_reply"))
     meta = f"{res['kind']}/{res.get('reason') or '-'} {res.get('elapsed')}s"
+    if res.get("desc"):
+        meta = f"{meta}｜照片：{res['desc']}"   # 照片描述只留在這，不會傳給客戶
     if res["kind"] in ("handoff", "timeout"):
         set_human(uid, res.get("reason") or "vision")
-    if config.AI.get("auto_reply"):
+    if auto:
         ok = reply(rt, [res["text"]])
         log_msg(uid, "out", "ai", res["text"], cid,
                 status="sent" if ok else "discarded", meta=meta)
     else:
         log_msg(uid, "out", "ai_draft", res["text"], cid, status="new", meta=meta)
-    log.info("圖片草稿已產生 uid=%s… %s", uid[:12], meta)
+    log.info("圖片%s uid=%s… %s", "已回覆" if auto else "草稿已產生", uid[:12], meta)
 
 
 def _ai_dispatch(uid: str, text: str, rt: str, cid: Optional[int]) -> bool:

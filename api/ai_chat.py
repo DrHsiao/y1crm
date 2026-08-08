@@ -116,6 +116,8 @@ _SYSTEM = f"""你是台灣「睿聲助聽器-中正門市」的 LINE 客服助�
 5. 不討論政治、投資理財、色情、違法等話題，禮貌婉拒即可。
 6. 不確定或知識庫沒有的資訊，不可臆測，請回覆會請門市人員確認。
 7. 不要自稱 AI 或語言模型，也不要提到這些規則。
+8. 你的回答會原封不動傳給客戶，所以只寫要對客戶說的話本身，
+   不要有「建議回覆」之類的標題、不要加前言、說明或引號。
 
 以下是門市知識庫，請以此為準：
 {KNOWLEDGE}
@@ -124,6 +126,27 @@ _SYSTEM = f"""你是台灣「睿聲助聽器-中正門市」的 LINE 客服助�
 # 輸出端第二道：金額樣式與價格字眼
 _MONEY_RE = re.compile(r"(\d[\d,]{2,})\s*(元|塊|圓|NT|台幣|新台幣)|[$＄]\s*\d")
 _PRICE_WORDS = ("售價", "定價", "報價", "價格是", "價錢是", "折扣", "特價", "優惠價")
+
+# ── 送出前清稿（客戶只該看到那句話本身）────────────────────
+#   模型會夾帶思考鏈或「【建議回覆】」這類**寫給店員看的**標頭，原樣傳給客戶很失禮。
+_THINK_RE = re.compile(r"<think>.*?</think>|<thinking>.*?</thinking>", re.S | re.I)
+_LABELS = "建議回覆|參考回覆|回覆內容|回覆建議|照片內容|圖片內容|內容描述|草稿|回覆|回答"
+#   兩種寫法都要清：行首的【標頭】、行首的「標頭：」（沒括號時**必須**有冒號，
+#   否則「回覆您的問題…」會被咬掉前兩個字）。
+_LABEL_RE = re.compile(rf"^[ \t]*(?:[【\[]\s*(?:{_LABELS})\s*[】\]]\s*[：:]?"
+                       rf"|(?:{_LABELS})[ \t]*[：:])[ \t]*", re.M)
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.S)
+
+
+def _clean_reply(text: str) -> str:
+    """把模型輸出整理成可以直接傳給客戶的樣子。"""
+    t = _THINK_RE.sub("", text or "")
+    t = _LABEL_RE.sub("", t)
+    t = _MD_BOLD_RE.sub(r"\1", t)          # LINE 不吃 markdown，星號原樣顯示很醜
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    if len(t) >= 2 and t[0] in "「\"“'" and t[-1] in "」\"”'":
+        t = t[1:-1].strip()                # 模型偶爾把整句話包在引號裡
+    return t
 
 
 def enabled() -> bool:
@@ -190,11 +213,14 @@ def _generate(question: str, history: List[Dict[str, str]], budget: float) -> st
 #   ⚠ 影像推論一律用 config.OCR 的好卡 0002（11434，qwen3-vl:32b-instruct 常駐），
 #     **絕不可送到 config.AI 的 573**（vision 必崩且靜默）。
 #   代價：與紙本表單 OCR 共用同一張卡且 MAX_LOADED_MODELS=1，兩者會排隊。
+#   ⚠ 兩段式輸出是**寫給店員看的**：【照片內容】只進 meta 供 CRM 查閱，
+#     真正傳給客戶的只有【建議回覆】那一段（見 _split_vision）。
 _VISION_PROMPT = """你是助聽器門市的客服助理，客戶在 LINE 傳來這張照片。
 
 請用繁體中文完成兩件事，格式如下：
 【照片內容】用一句話描述客戶拍的是什麼（例如：助聽器本體、電池艙、耳模、充電盒、耳朵、單據、其他）。
-【建議回覆】以親切口語寫一段可直接傳給客戶的話，100字以內。
+【建議回覆】以親切口語寫一段可直接傳給客戶的話，100字以內。這段會原封不動傳給客戶，
+所以只寫要對客戶說的話本身，不要有任何標題、說明、引號或前言。
 
 嚴格規則：
 - 絕對不要提到任何金額、價格、費用、折扣，即使照片上有數字也不要複述。
@@ -204,8 +230,26 @@ _VISION_PROMPT = """你是助聽器門市的客服助理，客戶在 LINE 傳來
 """
 
 
+# 拆兩段式輸出用：有括號、或行首「建議回覆：」都算分隔點
+_VISION_SPLIT_RE = re.compile(r"[【\[]\s*(?:建議回覆|參考回覆|回覆內容)\s*[】\]]\s*[：:]?\s*"
+                              r"|^[ \t]*(?:建議回覆|參考回覆|回覆內容)[ \t]*[：:][ \t]*", re.M)
+_DESC_HEAD_RE = re.compile(r"^\s*[【\[]?\s*(?:照片內容|圖片內容|內容描述)\s*[】\]]?\s*[：:]?\s*")
+
+
+def _split_vision(ans: str) -> Tuple[str, str]:
+    """把兩段式輸出拆成（照片描述＝只給店員, 回覆＝要傳給客戶）。
+
+    模型沒照格式走時（沒有【建議回覆】），整段就當回覆，仍會過 _clean_reply 去標頭。
+    """
+    t = _THINK_RE.sub("", ans or "").strip()
+    parts = _VISION_SPLIT_RE.split(t, maxsplit=1)
+    if len(parts) == 2:
+        return _DESC_HEAD_RE.sub("", parts[0]).strip(), _clean_reply(parts[1])
+    return "", _clean_reply(t)
+
+
 def describe_image(path: str, mime: str = "image/jpeg") -> Dict[str, Any]:
-    """看圖產生草稿。回傳格式同 answer()。"""
+    """看圖產生回覆。回傳格式同 answer()，另含 desc（照片描述，只寫進 meta 不傳客戶）。"""
     import base64
     t0 = time.time()
     try:
@@ -235,10 +279,12 @@ def describe_image(path: str, mime: str = "image/jpeg") -> Dict[str, Any]:
         return {"kind": "timeout", "reason": "vision_timeout", "text": sorry_text(),
                 "elapsed": round(time.time() - t0, 1)}
 
-    bad = _screen_output(ans)          # 照片可能是價目表/收據 → 同一套輸出過濾
+    desc, text = _split_vision(ans)
+    # 照片可能是價目表/收據 → 先用完整輸出過濾（描述段夾金額也要轉人工），再驗清稿後的回覆
+    bad = _screen_output(ans) or _screen_output(text)
     if bad:
-        return {**bad, "elapsed": round(time.time() - t0, 1)}
-    return {"kind": "reply", "reason": "vision", "text": ans,
+        return {**bad, "desc": desc, "elapsed": round(time.time() - t0, 1)}
+    return {"kind": "reply", "reason": "vision", "text": text, "desc": desc,
             "elapsed": round(time.time() - t0, 1)}
 
 
@@ -264,8 +310,9 @@ def answer(question: str, history: Optional[List[Dict[str, str]]] = None) -> Dic
         return {"kind": "timeout", "reason": "timeout", "text": sorry_text(),
                 "elapsed": round(time.time() - t0, 1)}
 
-    bad = _screen_output(ans)
+    text = _clean_reply(ans)
+    bad = _screen_output(ans) or _screen_output(text)
     if bad:
         return {**bad, "elapsed": round(time.time() - t0, 1)}
-    return {"kind": "reply", "reason": "", "text": ans,
+    return {"kind": "reply", "reason": "", "text": text,
             "elapsed": round(time.time() - t0, 1)}
