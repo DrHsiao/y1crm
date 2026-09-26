@@ -43,7 +43,8 @@
 - 看門狗的告警＝旗標檔 `/tmp/ollama_watchdog_failing` ＋ unit 變 failed
   （`systemctl --failed`）＋ journal 訊息；log 在 `/mnt/raid1/monitoring/ollama_watchdog.log`。
   卡上是**別的**模型時它**不驅逐**（可能有人正在用），只告警。
-- 溫控失效的徵兆：`/tmp/gpu_thermal_failing` 旗標與 log 裡的 `QUERY_FAILED`。
+- 溫控失效的徵兆：`/tmp/gpu_thermal_failing` 旗標與 log 裡的 `QUERY_FAILED`（全部卡都讀不到）。
+- 單卡失效：log 的 `CARD_ERROR`/`CARD_MISSING` 與 `/tmp/gpu_thermal_card_missing` 旗標；應在線的卡以序號列在腳本 `EXPECTED_CARDS`，換卡/拆卡要同步改。一張卡掉線時整批查詢會失敗，腳本會退回逐卡（依 bus）查詢，其餘好卡照樣受保護。
 
 ## 安裝／還原（重灌或換機後）
 
