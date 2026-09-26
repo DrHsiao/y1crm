@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily backup of irreplaceable /mnt/raid1 data + MySQL to /mnt/backup
+After=mysql.service
+RequiresMountsFor=/mnt/raid1 /mnt/backup
+
+[Service]
+Type=oneshot
+ExecStart=/home/john/y1crm/scripts/backup/raid1_backup.sh
+Nice=10
+IOSchedulingClass=idle
