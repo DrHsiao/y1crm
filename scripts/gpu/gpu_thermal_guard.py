@@ -28,7 +28,6 @@ MISSING_FLAG = "/tmp/gpu_thermal_card_missing"   # 有卡沒讀到溫度（掉�
 EXPECTED_CARDS = {
     "1422019000002": "0002 好卡(OCR)",
     "1422019000573": "573 軟壞卡(純文字)",
-    "1565019015717": "5717 死卡(曾 RmInitAdapter/fallen off bus)",
 }
 FIELDS = "index,serial,temperature.gpu,power.limit"
 
