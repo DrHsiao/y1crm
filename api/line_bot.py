@@ -34,7 +34,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import ai_chat
+from api import ai_chat, dbpool
 
 log = logging.getLogger("y1crm.line")
 router = APIRouter()
@@ -45,7 +45,7 @@ _TPL = Jinja2Templates(directory=os.path.join(
 
 
 def _conn():
-    return pymysql.connect(**config.db_params(),
+    return dbpool.connect(**config.db_params(),   # 連線池（2026-09-26）
                            cursorclass=pymysql.cursors.DictCursor, autocommit=True)
 
 

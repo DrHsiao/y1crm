@@ -25,6 +25,7 @@ import pymysql
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from api import dbpool  # noqa: E402  連線池（2026-09-26）
 
 PDF = "/home/john/DM.pdf"
 ACTOR = "型錄匯入"
@@ -62,7 +63,7 @@ def expand_ha(brand, series, num, form, battery, tiers, img=None,
 
 
 def insert_products(records, dry=False):
-    c = pymysql.connect(**config.db_params(), cursorclass=pymysql.cursors.DictCursor,
+    c = dbpool.connect(**config.db_params(), cursorclass=pymysql.cursors.DictCursor,
                         autocommit=True)
     cur = c.cursor()
     added = skipped = imgs = 0

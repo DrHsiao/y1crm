@@ -24,6 +24,7 @@ import pymysql
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from api import dbpool  # noqa: E402  連線池（2026-09-26）
 
 # ── 選單結構（與正式環境一致）──────────────────────────────
 #   群組沒有 path 與 perm_key（可見性由子項決定，無可見子項會自動隱藏）；
@@ -166,7 +167,7 @@ def main() -> int:
                     help="既有列若與本檔不同也一併校正（預設只新增，不覆蓋手動調整）")
     args = ap.parse_args()
 
-    db = pymysql.connect(**config.db_params(),
+    db = dbpool.connect(**config.db_params(),
                          cursorclass=pymysql.cursors.DictCursor, autocommit=True)
     with db, db.cursor() as cur:
         cur.execute(_DDL_MENUS)

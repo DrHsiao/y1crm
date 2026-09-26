@@ -44,7 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import line_bot
+from api import dbpool, line_bot
 from api.line_bot import router as line_router
 
 # DB 連線參數取自 config（config.toml / 環境變數），機密不再寫死於程式碼
@@ -77,7 +77,7 @@ _SECRET = _load_secret()
 
 
 def _conn():
-    return pymysql.connect(**_DB)
+    return dbpool.connect(**_DB)   # 連線池（2026-09-26）；close() 是歸還連線池
 
 
 # ── Session：payload(JSON).hmac 的簽章 cookie ────────────────────────────────
