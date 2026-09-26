@@ -1,0 +1,9 @@
+[Unit]
+Description=Host health check → Telegram on state change (y1crm/scripts/ops)
+After=network-online.target docker.service mysql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/john/y1crm/scripts/ops/healthcheck.py
+TimeoutStartSec=300

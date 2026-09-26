@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily host summary → Telegram (heartbeat; y1crm/scripts/ops)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/john/y1crm/scripts/ops/healthcheck.py --summary
+TimeoutStartSec=300
