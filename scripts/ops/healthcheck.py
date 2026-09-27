@@ -39,7 +39,7 @@ KNOWN_ISSUES = {
     "smart:57JEK0PAFPBE": "sdb 壞碟（SMART FAILED），已退出 RAID，待拆除送修",
 }
 
-SERVICES = ["y1crm", "mysql", "docker", "nginx", "openclaw-twii", "openclaw-twiii"]
+SERVICES = ["y1crm", "mysql", "docker", "nginx", "openclaw-twiii"]   # openclaw-twii 已於 2026-09-27 退役封存
 CONTAINERS = ["ollama", "ollama-573"]
 DISKS = {"/": 90, "/mnt/raid1": 90, "/boot": 85}     # 掛載點 → 告警門檻 %
 GPU_TEMP_WARN = 85                                   # V100：87 硬體降頻、90 關機
@@ -164,6 +164,14 @@ def check_services(p, info):
         unit = line.split()[0] if line.split() else ""
         if unit:
             p.append((f"failed:{unit}", f"systemd 單元失敗：{unit}", 2))
+    # 重啟迴圈：狀態是 activating/auto-restart 而不是 failed，--failed 抓不到
+    #   （2026-09-27 發現 openclaw-twii-ui 找不到目錄，開機後重啟了 8630 次都沒被發現）
+    rc, out = sh(["systemctl", "list-units", "--type=service", "--all", "--no-legend", "--plain"])
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) >= 4 and f[3] == "auto-restart":
+            rc2, n = sh(["systemctl", "show", "-p", "NRestarts", "--value", f[0]])
+            p.append((f"loop:{f[0]}", f"服務 {f[0]} 一直在重啟（已重啟 {n.strip()} 次）", 2))
     rc, out = sh(["docker", "ps", "--format", "{{.Names}}"])
     running = set(out.split())
     for c in CONTAINERS:
