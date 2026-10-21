@@ -30,6 +30,7 @@ _DEFAULTS: dict = {
         "staff_photos": "staff",
         "product_attachments": "products",
         "line_media": "line",       # LINE 客戶傳來的圖片/檔案
+        "hearing_files": "hearing", # 聽檢輔助：MA42 螢幕照片／PDF 報告
     },
     "db": {
         "host": "localhost", "user": "root", "password": "",
@@ -65,6 +66,8 @@ _DEFAULTS: dict = {
     "server": {"host": "0.0.0.0", "port": 8004},
     # 店面狀態看板（免登入電視牆）：key 未設＝看板停用；URL 帶 ?k=<key> 存取
     "board": {"key": ""},
+    # 官網管理（y1web）：圖片存到官網的 media/uploads；site_url 給「在官網查看」連結用
+    "web": {"media_dir": "/home/john/y1web/media/uploads", "site_url": "http://192.168.1.88:8006"},
 }
 
 
@@ -112,9 +115,10 @@ SERVER: dict = _CFG["server"]
 LINE: dict = _CFG["line"]
 BOARD: dict = _CFG["board"]
 AI: dict = _CFG["ai"]
+WEB: dict = _CFG["web"]
 
 _STORAGE_KINDS = ("todo_attachments", "customer_photos", "form_images", "staff_photos",
-                  "product_attachments", "line_media")
+                  "product_attachments", "line_media", "hearing_files")
 
 
 def db_params() -> dict:

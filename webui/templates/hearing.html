@@ -1,0 +1,168 @@
+{% extends "layout.html" %}
+{% block title %}聽檢輔助 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 客戶與本次檢查設定 ─────────────────────────────── -->
+  <div class="card ht-card">
+    <div class="section-row">
+      <h3 style="flex:1; margin:0; white-space:nowrap;">聽檢輔助<span class="lh" id="ht-editing"></span></h3>
+      <button type="button" class="btn sm" id="noah-btn" onclick="$('noah-file').click()">📥 匯入 Noah</button>
+      <button type="button" class="btn sm" id="ocr-load-btn" onclick="warmupOcr()">🔌 載入模型</button>
+      <button type="button" class="btn sm" id="read-camera-btn" onclick="$('read-camera').click()" disabled>📷 拍螢幕</button>
+      <button type="button" class="btn sm" id="read-file-btn" onclick="$('read-file').click()" disabled>📄 照片／PDF</button>
+    </div>
+    <input type="file" id="read-camera" accept="image/*" capture="environment" class="hidden">
+    <input type="file" id="read-file" accept="image/*,application/pdf" class="hidden">
+    <input type="file" id="noah-file" accept=".nhax" class="hidden">
+    <div id="ocr-status" class="field-info hidden"></div>
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="cust-q">客戶<span class="lh">姓名／客戶編號／手機</span></label>
+        <div class="input-row">
+          <input id="cust-q" type="text" autocomplete="off" spellcheck="false">
+          <button type="button" class="btn outline fq-btn" onclick="searchCustomers()">查詢</button>
+        </div>
+        <div id="cust-results" class="ht-pick hidden"></div>
+        <div id="cust-picked" class="field-info hidden"></div>
+      </div>
+      <div class="field">
+        <label for="f-test_date">檢查日期<span class="lh df-hint"></span></label>
+        <input id="f-test_date" type="text" maxlength="10" autocomplete="off" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label>對象</label>
+        <div class="seg" id="seg-mode">
+          <button type="button" data-v="adult">成人</button><button type="button" data-v="child">兒童</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>氣導耳機</label>
+        <div class="seg" id="seg-transducer">
+          <button type="button" data-v="DD45">DD45 耳罩式</button><button type="button" data-v="IP30">IP30 插入式</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>先測耳</label>
+        <div class="seg" id="seg-first_ear">
+          <button type="button" data-v="R">右耳</button><button type="button" data-v="L">左耳</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>對談狀況<span class="lh">決定起始音量</span></label>
+        <div class="seg" id="seg-talk">
+          <button type="button" data-v="ok">可以</button><button type="button" data-v="poor">困難</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ht-history" class="hidden">
+      <div class="section-title">歷次聽檢</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>檢查日期</th><th>判讀摘要</th><th>原始檔</th><th>建立者</th></tr></thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Noah 匯入（.nhax：聽力圖精確值＋ReSound 選配設定）────────── -->
+  <div class="card ht-card hidden" id="noah-card">
+    <div class="section-row">
+      <h3 style="flex:1; margin:0;">Noah 匯入<span class="lh" id="noah-patient"></span></h3>
+      <button type="button" class="btn sm outline" onclick="closeNoah()">收起</button>
+    </div>
+    <div id="noah-warn"></div>
+    <div class="section-title">聽力圖<span class="lh">選一份填入下方表格（數值是精確值，不用逐格對照）</span></div>
+    <div id="noah-audiograms"></div>
+    <div class="section-title">助聽器設定</div>
+    <div id="noah-fitting"></div>
+  </div>
+
+  <!-- ── 聽閾（手填、Noah 匯入或拍照讀值；拍照讀值要人工確認）──────── -->
+  <div class="card ht-card">
+    <div class="section-row">
+      <h3 style="flex:1; margin:0;">聽力數值<span class="lh">dB HL</span></h3>
+      <button type="button" class="btn sm hidden" id="confirm-btn" onclick="confirmAll()">✔ 已對照確認</button>
+      <button type="button" class="btn sm outline" id="nr-btn" onclick="toggleNrMode()">NR 標記</button>
+    </div>
+    <div id="screen-now" class="banner info hidden"></div>
+    <div class="table-wrap ht-grid-wrap">
+      <table class="ht-grid">
+        <thead id="grid-head"></thead>
+        <tbody id="grid-body"></tbody>
+      </table>
+    </div>
+    <div class="ht-retest">
+      <label for="retest-in" id="retest-label">右耳 1 kHz 重測</label>
+      <input id="retest-in" class="ht-cell-like" inputmode="numeric" autocomplete="off">
+    </div>
+    <p class="hint">黃底＝AI 讀值（實驗性，常差 5 dB），請逐格對照機器畫面，改過或按「已對照確認」就會消失；紅框＝數值不合法。
+      無反應：按「NR 標記」後點格子切換。</p>
+    <div id="ht-chart" class="ht-chart"></div>
+    <p class="hint ht-legend">
+      <span class="ht-r-text">右耳 ○ 氣導　△ 氣導遮蔽　&lt; 骨導　[ 骨導遮蔽</span>
+      <span class="ht-l-text">左耳 × 氣導　□ 氣導遮蔽　&gt; 骨導　] 骨導遮蔽</span>
+      <span>虛線＝25 dB HL 正常上限</span>
+    </p>
+  </div>
+
+  <!-- ── 規則判讀（全部來自講義；講義沒寫的標「暫定」）──────────── -->
+  <div class="card ht-card">
+    <h3>下一步</h3>
+    <div id="ht-next" class="ht-next"></div>
+    <div id="ht-warn"></div>
+    <details class="ht-details" id="ht-check-wrap" open>
+      <summary>檢查清單（依講義順序）</summary>
+      <ul id="ht-checklist" class="ht-checklist"></ul>
+    </details>
+
+    <div class="section-title">判讀</div>
+    <div id="ht-interp"></div>
+    <details class="ht-details">
+      <summary>暫定判準（講義沒寫，待聽力師確認）</summary>
+      <ul id="ht-pending" class="hint"></ul>
+    </details>
+  </div>
+
+  <!-- ── 鼓室圖與語音檢查（選填）─────────────────────────────── -->
+  <div class="card ht-card">
+    <h3>鼓室圖與語音檢查<span class="lh">選填</span></h3>
+    <div class="table-wrap">
+      <table class="ht-grid ht-extra">
+        <thead><tr>
+          <th></th><th>尖峰壓力 daPa</th><th>聲順值</th><th>NP</th><th>鼓室圖</th>
+          <th>SRT dB</th><th>WDS %</th><th>MCL dB</th>
+        </tr></thead>
+        <tbody id="extra-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 備註、原始檔、儲存 ──────────────────────────────────── -->
+  <div class="card ht-card">
+    <div class="field">
+      <label for="f-notes">備註</label>
+      <textarea id="f-notes" rows="2" maxlength="1000"></textarea>
+    </div>
+    <label>原始檔<span class="lh">讀值用過的 MA42 螢幕照片／PDF、Noah 匯出檔，儲存時一併保存</span></label>
+    <div id="ht-files" class="ht-files"></div>
+    <div class="actions">
+      <button type="button" class="btn" id="save-btn" onclick="saveTest()">儲存</button>
+      <button type="button" class="btn outline" onclick="newTest()">新檢查</button>
+      <button type="button" class="btn outline right hidden" id="del-btn" onclick="deleteTest()">刪除這筆</button>
+    </div>
+  </div>
+
+  <!-- ── 辨識中遮罩（沿用 OCR 樣式）──────────────────────────── -->
+  <div id="ocr-overlay" class="hidden" aria-live="polite" aria-busy="true">
+    <div class="ocr-box">
+      <div class="ocr-spin"></div>
+      <div class="ocr-title">讀取中，請稍候…</div>
+      <div class="ocr-timer" id="ocr-timer">已處理 0 秒</div>
+      <div class="ocr-hint">正在讀取聽力檢查儀畫面，完成後會自動填入。<br>處理期間請勿離開或關閉本頁。</div>
+      <div class="ocr-bar"></div>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/hearing.js?v={{ v }}"></script>{% endblock %}

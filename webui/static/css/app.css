@@ -550,3 +550,126 @@
     .lc-back { display: inline-flex; }
     .lc-head-state { width: 100%; margin-left: 0; }
   }
+
+  /* ── 聽檢輔助（/hearing）：右耳紅、左耳藍為聽力圖慣例，暗色調亮以維持對比 ── */
+  :root { --ht-r: #d32f2f; --ht-l: #1565c0; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ht-r: #ff6b6b; --ht-l: #6aa8ff; }
+  }
+  :root[data-theme="dark"] { --ht-r: #ff6b6b; --ht-l: #6aa8ff; }
+  .ht-card { margin-top: 1rem; }
+  .ht-card h3 .lh { font-weight: 400; color: var(--muted); font-size: .85rem; margin-left: .4rem; }
+  .ht-pick { border: 1px solid var(--line); border-radius: 6px; margin-top: .4rem;
+             max-height: 15rem; overflow-y: auto; }
+  .ht-pick button { display: block; width: 100%; text-align: left; padding: .55rem .8rem;
+                    border: none; border-bottom: 1px solid var(--line); background: var(--card);
+                    color: var(--text); font-size: 1rem; cursor: pointer; }
+  .ht-pick button:hover { background: var(--brand-soft); }
+  .ht-pick .lh { color: var(--muted); font-size: .88rem; margin-left: .3rem; }
+  .ht-pick-empty { padding: .55rem .8rem; color: var(--muted); }
+  tr.ht-current { background: var(--brand-soft); }
+  /* 聽閾格線：10 個頻率欄，平板窄螢幕在 .table-wrap 內左右捲 */
+  .ht-grid th, .ht-grid td { padding: .3rem .3rem; text-align: center; }
+  .ht-grid tbody tr { cursor: default; }
+  .ht-grid tbody tr:hover { background: none; }
+  .ht-grid th.rowh { text-align: left; font-weight: 600; padding-left: .7rem;
+                    position: sticky; left: 0; z-index: 1; background: var(--card); }   /* 左右捲時列名不跑掉 */
+  .ht-grid thead th:first-child { position: sticky; left: 0; z-index: 2; }
+  .ht-grid tr.ear-R th.rowh { color: var(--ht-r); }
+  .ht-grid tr.ear-L th.rowh { color: var(--ht-l); }
+  .ht-grid tr.ht-sep > * { border-top: 2px solid var(--line); }
+  .ht-grid td.na { background: var(--thead-bg); }
+  .ht-grid tr.ht-note td { text-align: left; white-space: normal; color: var(--muted);
+                           font-size: .88rem; padding-top: 0; }
+  .ht-cell, .ht-x, .ht-cell-like { width: 3.6rem; padding: .35rem .2rem; text-align: center; font-size: 1rem; }
+  .ht-x { width: 4.6rem; }
+  .ht-np { width: auto; transform: scale(1.3); }
+  .ht-cell.ht-bad, .ht-x.ht-bad, .ht-cell-like.ht-bad { border-color: var(--danger); background: var(--danger-bg); }
+  .ht-cell.ht-hit, .ht-cell-like.ht-hit { outline: 3px solid var(--brand); outline-offset: 1px; }
+  body.nr-mode .ht-cell { cursor: pointer; background: var(--warn-bg); }
+  .ht-retest { display: flex; align-items: center; gap: .6rem; margin: .8rem 0 .2rem; }
+  .ht-retest label { margin: 0; }
+  /* 聽力圖 */
+  .ht-chart svg { display: block; width: 100%; max-width: 640px; height: auto; margin: .6rem auto 0; }
+  .ht-chart .ht-r, .ht-chart .ht-l { fill: none; stroke-width: 1.8; }
+  .ht-r { stroke: var(--ht-r); }
+  .ht-l { stroke: var(--ht-l); }
+  .ht-chart .ht-line { stroke-width: 1.2; opacity: .75; }
+  .ht-gl { stroke: var(--line); stroke-width: 1; }
+  .ht-gl-mid { stroke-dasharray: 3 3; }
+  .ht-ref { stroke: var(--muted); stroke-dasharray: 6 4; }
+  .ht-tx { fill: var(--muted); font-size: 13px; }
+  .ht-legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; justify-content: center; }
+  .ht-r-text { color: var(--ht-r); }
+  .ht-l-text { color: var(--ht-l); }
+  /* 判讀 */
+  .ht-next { padding: .8rem 1rem; border-radius: 8px; background: var(--brand-soft);
+             border: 1px solid var(--line); }
+  .ht-next-main { font-size: 1.1rem; }
+  .ht-start { margin-bottom: .4rem; }
+  .ht-next .why, .ht-checklist .why { color: var(--muted); font-size: .88rem; margin-top: .2rem; }
+  .ht-warn { margin-top: .5rem; }
+  .ht-details summary { cursor: pointer; color: var(--muted); margin-top: .9rem; }
+  .ht-checklist { list-style: none; padding: 0; margin: .5rem 0 0; columns: 2 17rem; column-gap: 1.5rem; }
+  .ht-checklist li { padding: .22rem 0; break-inside: avoid; }
+  .ht-checklist li.done { color: var(--muted); }
+  .ht-checklist li.now { font-weight: 700; color: var(--brand); }
+  .ht-checklist .why { display: block; font-weight: 400; }
+  #ht-pending { margin: .4rem 0 0; padding-left: 1.2rem; }
+  /* 原始檔 */
+  .ht-files { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .3rem; }
+  .ht-file { display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .6rem;
+             border: 1px solid var(--line); border-radius: 6px; font-size: .92rem; }
+  .ht-file.pending { border-style: dashed; color: var(--muted); }
+  .ht-file a { color: var(--text); text-decoration: none; }
+  .ht-file button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: .95rem; }
+
+  /* Noah 匯入 */
+  .section-title .lh { font-weight: 400; color: var(--muted); font-size: .85rem; margin-left: .4rem; }
+  .ht-ag { border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; margin-top: .5rem; }
+  .ht-ag.ht-current { border-color: var(--brand); }
+  .ht-ag-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .8rem; }
+  .ht-ag-head .lh { color: var(--muted); font-size: .88rem; }
+  .ht-ag-head .btn { margin-left: auto; }
+  .ht-ag-diff { margin-top: .35rem; font-size: .92rem; }
+  .ht-ag .why, .ht-feat .why { color: var(--muted); font-size: .85rem; }
+  .ht-ag .why { margin-top: .2rem; }
+  .ht-devs .lh { color: var(--muted); font-size: .88rem; margin-left: .6rem; }
+  .ht-badge { display: inline-block; padding: 0 .45rem; border-radius: 999px; font-size: .78rem;
+              background: var(--brand); color: #fff; vertical-align: middle; }
+  .ht-prog h4 { margin: 1rem 0 .3rem; }
+  .ht-feat th.rowh .lh { font-weight: 400; color: var(--muted); font-size: .8rem; margin-left: .4rem; }
+  .ht-feat td { white-space: normal; min-width: 5.5rem; }
+  @media (max-width: 600px) {
+    .ht-feat th.rowh { white-space: normal; min-width: 5.5rem; }
+    .ht-feat th.rowh .lh { display: none; }
+    .ht-feat td { min-width: 0; padding: .3rem .2rem; }
+  }
+  .ht-feat td.ht-chg { background: var(--warn-bg); }
+  .ht-hist th.rowh { white-space: nowrap; }
+  .ht-hist td.ht-chglist { text-align: left; font-size: .85rem; color: var(--muted); white-space: nowrap; }
+
+  /* ── 預約留言：來源／到府標籤（官網 y1web）─────────────────── */
+  .bk-tag { display: inline-block; font-size: .78rem; padding: 0 .45rem; margin-right: .3rem;
+            border-radius: 999px; background: var(--info-bg); color: var(--info-text); vertical-align: 1px; }
+  .bk-tag.web { background: var(--ok-bg); color: var(--ok-text); }
+  .bk-tag.home { background: var(--warn-bg); color: var(--warn-text); }
+  td.bk-need { min-width: 12rem; }
+  td.bk-who { white-space: normal; min-width: 10rem; }
+
+  /* ── 官網管理（web_admin）：左邊內容、右邊狀態與圖片 ───────────── */
+  .wa-grid { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 1.4rem; align-items: start; }
+  .wa-main .modal-field, .wa-side .modal-field { margin-bottom: .9rem; }
+  .wa-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 .4rem; }
+  .wa-md { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .98rem; line-height: 1.6; min-height: 22rem; }
+  .wa-cover-img { width: 100%; max-height: 14rem; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+  .wa-check { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+  .wa-check input { width: 1.2rem; height: 1.2rem; }
+  .wa-adv summary { cursor: pointer; color: var(--muted); margin-bottom: .4rem; }
+  .wa-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+  @media (max-width: 900px) { .wa-grid { grid-template-columns: 1fr; } }
+  /* 外框／淡色按鈕：其他頁也用到 .btn.outline／.btn.ghost 但沒有定義（顯示成實心），這裡先只套在官網管理頁 */
+  #wa-list-card .btn.outline, #wa-editor .btn.outline { background: transparent; color: var(--brand); }
+  #wa-list-card .btn.outline:hover, #wa-editor .btn.outline:hover { background: var(--brand-soft); }
+  #wa-editor .btn.ghost { background: transparent; border-color: var(--line); color: var(--text); }
+  #wa-editor .btn.ghost:hover { background: var(--brand-soft); }

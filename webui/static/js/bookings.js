@@ -4,6 +4,7 @@
 
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 let bkStatus = "new";
+let bkRows = [];
 
 const ST_LABEL = { new: "🟡 待處理", handled: "✅ 已處理", cancelled: "❌ 已取消" };
 // 客戶在 LINE 提醒訊息上按「確認前往」（confirm_status）
@@ -14,6 +15,25 @@ function replyCell(b) {
   if (cf) return `${cf}<span class="lh">‧${esc(DF.fromISODateTime(b.confirmed_at ?? ""))}</span>`;
   if (b.reminded_at) return `<span class="hint">已提醒‧未回覆</span>`;
   return `<span class="hint">—</span>`;
+}
+
+// 來源：LINE 表單或官網（y1web）；到府服務另標地址
+function sourceTag(b) {
+  return b.source === "web" ? `<span class="bk-tag web">官網</span>` : `<span class="bk-tag">LINE</span>`;
+}
+
+function needCell(b) {
+  const addr = b.kind === "home" && b.address ? `<div>📍 ${esc(b.address)}</div>` : "";
+  return addr + (esc(b.note ?? "") || (addr ? "" : "—"));
+}
+
+function whoCell(b) {
+  if (b.customer_id)
+    return `<a href="/customers#detail/${b.customer_id}">${esc(b.customer_name)}‧${esc(b.customer_code)}</a>`;
+  const m = b.phone_match;
+  const hint = m ? `<div class="hint">可能是 <a href="/customers#detail/${m.id}">${esc(m.name)}‧${esc(m.customer_code)}</a>
+      <button type="button" class="btn sm outline" onclick="linkCustomer(${b.id})">掛上</button></div>` : "";
+  return (esc(b.line_display_name ?? "") || (b.line_user_id ? "LINE 已連結" : "—")) + hint;
 }
 
 function slotLabel(dIso, hour) {
@@ -30,17 +50,17 @@ async function loadBookings() {
 }
 
 function renderBookings(rows) {
+  bkRows = rows;
   $("bk-count").textContent = `（${rows.length} 筆）`;
   $("bk-body").innerHTML = rows.length ? rows.map(b => `
     <tr${b.status !== "new" ? ' style="opacity:.6"' : ""}>
       <td>${esc(DF.fromISODateTime(b.created_at ?? ""))}</td>
       <td>${esc(b.contact_name)}</td>
       <td>${esc(b.phone)}</td>
-      <td><b>${slotLabel(b.req_date, b.req_hour)}</b></td>
-      <td class="addr">${esc(b.note ?? "") || "—"}</td>
-      <td>${b.customer_id
-            ? `<a href="/customers#detail/${b.customer_id}">${esc(b.customer_name)}‧${esc(b.customer_code)}</a>`
-            : esc(b.line_display_name ?? "") || "—"}</td>
+      <td>${sourceTag(b)}${b.kind === "home" ? `<span class="bk-tag home">到府</span>` : ""}
+        <b>${slotLabel(b.req_date, b.req_hour)}</b></td>
+      <td class="addr bk-need">${needCell(b)}</td>
+      <td class="bk-who">${whoCell(b)}</td>
       <td>${replyCell(b)}</td>
       <td>${ST_LABEL[b.status] || esc(b.status)}${b.handled_by ? `<span class="lh">‧${esc(b.handled_by)}</span>` : ""}</td>
       <td>
@@ -59,6 +79,16 @@ function renderBookings(rows) {
 async function setBooking(bid, st) {
   try {
     await api(`/api/bookings/${bid}`, { method: "PUT", body: JSON.stringify({ status: st }) });
+    await loadBookings();
+  } catch (e) { setStatus(e.message, "danger"); }
+}
+
+async function linkCustomer(bid) {
+  const m = (bkRows.find(r => r.id === bid) || {}).phone_match;
+  if (!m) return;
+  if (!confirm(`官網預約只憑客人填的電話比對，請先電話確認是本人。\n確定把這筆預約掛到「${m.name}」嗎？`)) return;
+  try {
+    await api(`/api/bookings/${bid}/customer`, { method: "PUT", body: JSON.stringify({ customer_id: m.id }) });
     await loadBookings();
   } catch (e) { setStatus(e.message, "danger"); }
 }

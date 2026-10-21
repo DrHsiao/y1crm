@@ -33,6 +33,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import bcrypt
@@ -44,7 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import dbpool, line_bot
+from api import dbpool, hearing, line_bot, noah, web_admin
 from api.line_bot import router as line_router
 
 # DB 連線參數取自 config（config.toml / 環境變數），機密不再寫死於程式碼
@@ -355,6 +356,14 @@ def create_app() -> FastAPI:
     @app.get("/line-chat")
     def page_line_chat(request: Request):
         return _page(request, "line_chat.html", "line-chat")
+
+    @app.get("/hearing")
+    def page_hearing(request: Request):
+        return _page(request, "hearing.html", "hearing")
+
+    @app.get("/web-admin")
+    def page_web_admin(request: Request):
+        return _page(request, "web_admin.html", "web")
 
     @app.get("/board")
     def page_board(request: Request):
@@ -802,7 +811,40 @@ def create_app() -> FastAPI:
                 "LEFT JOIN customers c ON c.id = b.customer_id "
                 "LEFT JOIN line_followers f ON f.line_user_id = b.line_user_id "
                 f"{cond} ORDER BY b.created_at DESC, b.id DESC LIMIT 200", args)
-            return {"rows": [_row_json(r) for r in cur.fetchall()]}
+            rows = [_row_json(r) for r in cur.fetchall()]
+            # 官網預約沒有身分驗證：電話剛好對到一位客戶時只「提示」，由店員按「掛上」確認
+            phones = {re.sub(r"\D", "", r["phone"] or "") for r in rows if not r["customer_id"]} - {""}
+            match: Dict[str, List[Dict[str, Any]]] = {}
+            if phones:
+                cur.execute("SELECT id, name, customer_code, "
+                            "       REPLACE(REPLACE(phone_mobile,'-',''),' ','') AS ph FROM customers "
+                            "WHERE REPLACE(REPLACE(phone_mobile,'-',''),' ','') IN %s", (tuple(phones),))
+                for c in cur.fetchall():
+                    match.setdefault(c["ph"], []).append(c)
+            for r in rows:
+                cands = match.get(re.sub(r"\D", "", r["phone"] or ""), []) if not r["customer_id"] else []
+                r["phone_match"] = ({"id": cands[0]["id"], "name": cands[0]["name"],
+                                     "customer_code": cands[0]["customer_code"]}
+                                    if len(cands) == 1 else None)
+            return {"rows": rows}
+
+    @app.put("/api/bookings/{bid}/customer")
+    def link_booking_customer(request: Request, bid: int, body: Dict[str, Any] = Body(...)):
+        """店員確認後把預約掛到客戶（官網預約只憑填寫的電話，不自動掛）。"""
+        _require_menu(_current_user(request), "customers")
+        try:
+            cid = int(body.get("customer_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "customer_id 不正確。")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id FROM customers WHERE id=%s", (cid,))
+            if cur.fetchone() is None:
+                raise HTTPException(404, "找不到這位客戶。")
+            cur.execute("UPDATE booking_requests SET customer_id=%s "
+                        "WHERE id=%s AND customer_id IS NULL", (cid, bid))
+            if cur.rowcount != 1:
+                raise HTTPException(422, "這筆預約不存在，或已經掛了客戶。")
+        return {"ok": True}
 
     @app.put("/api/bookings/{bid}")
     def update_booking(request: Request, bid: int, body: Dict[str, Any] = Body(...)):
@@ -1409,9 +1451,9 @@ uncertain(沒把握的欄位名陣列)"""
         except ValueError:
             return None
 
-    def _call_ocr(image_b64: str, mime: str) -> Dict[str, Any]:
+    def _call_ocr(image_b64: str, mime: str, prompt: Optional[str] = None) -> Dict[str, Any]:
         payload = json.dumps({
-            "model": _OCR_MODEL, "prompt": _OCR_PROMPT, "images": [image_b64],
+            "model": _OCR_MODEL, "prompt": prompt or _OCR_PROMPT, "images": [image_b64],
             "stream": False, "keep_alive": -1,
             "think": False,   # qwen3-vl 是 thinking 模型：OCR 只要 JSON，關掉 CoT 省下大量生成 token（實測延遲主因）
             "options": {"temperature": 0, "num_ctx": 8192},
@@ -1556,6 +1598,241 @@ uncertain(沒把握的欄位名陣列)"""
         with _ocr_lock:
             _ocr_warm.update(state="idle", error=None)
         return {"state": "idle"}
+
+    # ── 聽檢輔助（MA42 螢幕照片／PDF → 本機 qwen3-vl 讀值 → 講義規則判讀）───
+    #   規則全在 api/hearing.py（純函式、有單元測試），這裡只管 I/O 與權限。
+    #   讀值與表單 OCR 共用同一個常駐模型（同 model 名，不會互相擠出 VRAM），
+    #   模型載入狀態也沿用 /api/ocr/warmup、/api/ocr/status。
+    _NHAX_MIME = "application/x-nhax"       # Noah 匯出檔沒有標準 MIME，前端上傳時指定這個
+    _NHAX_MAX = 30 * 1024 * 1024             # 一位客戶實測 1MB；多年紀錄也遠小於此
+
+    def _hearing_upload_mime(request: Request, allow_nhax: bool = False) -> str:
+        mime = (request.headers.get("content-type") or "").split(";")[0].strip()
+        if mime.startswith("image/") or mime == "application/pdf" or (allow_nhax and mime == _NHAX_MIME):
+            return mime
+        raise HTTPException(422, "只接受圖片、PDF 或 Noah 匯出檔（.nhax）。" if allow_nhax else "只接受圖片或 PDF 檔案。")
+
+    async def _hearing_body(request: Request, limit: int = _PHOTO_MAX) -> bytes:
+        data = await request.body()
+        if not data:
+            raise HTTPException(422, "沒有收到檔案內容。")
+        if len(data) > limit:
+            raise HTTPException(413, f"檔案超過 {limit // 1024 // 1024}MB，無法上傳。")
+        return data
+
+    def _parse_nhax(data: bytes) -> Dict[str, Any]:
+        try:
+            return noah.parse_nhax(data)
+        except noah.NoahError as e:
+            raise HTTPException(422, str(e))
+
+    def _pdf_first_page(data: bytes) -> tuple:
+        """PDF 第 1 頁轉 PNG（長邊 1600px，同 OCR 的準確度設定）＋內嵌文字當輔助。"""
+        import fitz   # PyMuPDF；只有這裡用到，延遲載入
+        try:
+            doc = fitz.open(stream=data, filetype="pdf")
+        except Exception:
+            raise HTTPException(422, "PDF 檔案無法開啟，請確認檔案沒有損壞。")
+        with doc:
+            if doc.page_count == 0:
+                raise HTTPException(422, "PDF 沒有任何頁面。")
+            page = doc[0]
+            zoom = 1600 / max(page.rect.width, page.rect.height)
+            png = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
+            text = page.get_text().strip()
+        return base64.b64encode(png).decode(), text[:3000]
+
+    @app.post("/api/hearing/read")
+    async def hearing_read(request: Request):
+        _require_menu(_current_user(request), "hearing")
+        mime = _hearing_upload_mime(request)
+        data = await _hearing_body(request)
+        prompt = hearing.READ_PROMPT
+        if mime == "application/pdf":
+            b64, text = await asyncio.to_thread(_pdf_first_page, data)
+            if text:
+                prompt += ("\n\n這份是 PDF 報告，以下是檔案內嵌的文字（可能含數值表，可交叉比對）：\n"
+                           + text)
+        else:
+            b64 = base64.b64encode(data).decode()
+        raw = await asyncio.to_thread(_call_ocr, b64, mime, prompt)
+        return hearing.from_vlm(raw)
+
+    # Noah 匯出檔：只解析不存檔（原始檔跟著聽檢紀錄儲存時才上傳）
+    @app.post("/api/hearing/noah")
+    async def hearing_noah(request: Request):
+        _require_menu(_current_user(request), "hearing")
+        data = await _hearing_body(request, _NHAX_MAX)
+        return await asyncio.to_thread(_parse_nhax, data)
+
+    @app.post("/api/hearing/assess")
+    def hearing_assess(request: Request, body: Dict[str, Any] = Body(...)):
+        _require_menu(_current_user(request), "hearing")
+        return hearing.assess(hearing.clean_data(body.get("data")), **hearing.options(body))
+
+    @app.get("/api/hearing/customers")
+    def hearing_customers(request: Request, q: str = ""):
+        _require_menu(_current_user(request), "hearing")
+        q = q.strip()
+        if not q:
+            return {"rows": []}
+        like = f"%{q}%"
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id, customer_code, name, gender, birth_date FROM customers "
+                        "WHERE name LIKE %s OR customer_code LIKE %s OR phone_mobile LIKE %s "
+                        "ORDER BY updated_at DESC LIMIT 20", (like, like, like))
+            return {"rows": [_row_json(r) for r in cur.fetchall()]}
+
+    def _collect_hearing(body: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            cid = int(body.get("customer_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "請先選擇客戶。")
+        test_date = _parse_date(body.get("test_date"))
+        if not test_date:
+            raise HTTPException(422, "請填寫檢查日期。")
+        opts = hearing.options(body)
+        data = hearing.clean_data(body.get("data"))
+        summary = hearing.assess(data, **opts)["summary"]   # 存檔當下的判讀，列表顯示用
+        return {"customer_id": cid, "test_date": test_date, **opts,
+                "data": json.dumps(data, ensure_ascii=False),
+                "summary": summary[:200] or None, "rules_version": hearing.RULES_VERSION,
+                "notes": (_clean(body.get("notes")) or "")[:1000] or None}
+
+    def _hearing_customer_exists(cur, cid: int) -> None:
+        cur.execute("SELECT id FROM customers WHERE id=%s", (cid,))
+        if cur.fetchone() is None:
+            raise HTTPException(404, "找不到這位客戶（可能已被移除）。")
+
+    @app.get("/api/hearing/tests")
+    def list_hearing_tests(request: Request, customer_id: int):
+        _require_menu(_current_user(request), "hearing")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT t.id, t.test_date, t.summary, t.created_by, t.updated_at, "
+                        "(SELECT COUNT(*) FROM hearing_test_files f WHERE f.test_id=t.id) AS files "
+                        "FROM hearing_tests t WHERE t.customer_id=%s "
+                        "ORDER BY t.test_date DESC, t.id DESC", (customer_id,))
+            return {"rows": [_row_json(r) for r in cur.fetchall()]}
+
+    @app.get("/api/hearing/tests/{tid}")
+    def get_hearing_test(request: Request, tid: int):
+        _require_menu(_current_user(request), "hearing")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT t.*, c.name AS customer_name, c.customer_code "
+                        "FROM hearing_tests t JOIN customers c ON c.id=t.customer_id "
+                        "WHERE t.id=%s", (tid,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, "找不到這筆聽檢紀錄（可能已被刪除）。")
+            cur.execute("SELECT id, filename, mime, bytes_size, created_by, created_at "
+                        "FROM hearing_test_files WHERE test_id=%s ORDER BY id", (tid,))
+            files = [_row_json(r) for r in cur.fetchall()]
+        out = _row_json(row)
+        out["data"] = hearing.clean_data(json.loads(row["data"]))
+        out["files"] = files
+        return out
+
+    @app.post("/api/hearing/tests")
+    def create_hearing_test(request: Request, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "hearing")
+        row = _collect_hearing(body)
+        cols = list(row) + ["created_by", "updated_by"]
+        with _conn() as db, db.cursor() as cur:
+            _hearing_customer_exists(cur, row["customer_id"])
+            cur.execute(f"INSERT INTO hearing_tests ({', '.join(f'`{c}`' for c in cols)}) "
+                        f"VALUES ({', '.join(['%s'] * len(cols))})",
+                        list(row.values()) + [user["realname"]] * 2)
+            return {"id": cur.lastrowid}
+
+    @app.put("/api/hearing/tests/{tid}")
+    def update_hearing_test(request: Request, tid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "hearing")
+        row = _collect_hearing(body)
+        with _conn() as db, db.cursor() as cur:
+            _hearing_customer_exists(cur, row["customer_id"])
+            sets = ", ".join(f"`{c}`=%s" for c in row)
+            cur.execute(f"UPDATE hearing_tests SET {sets}, updated_by=%s WHERE id=%s",
+                        list(row.values()) + [user["realname"], tid])
+            cur.execute("SELECT id FROM hearing_tests WHERE id=%s", (tid,))
+            if cur.fetchone() is None:   # rowcount 在「內容沒變」時也是 0，改用查詢確認存在
+                raise HTTPException(404, "找不到這筆聽檢紀錄（可能已被刪除）。")
+        return {"ok": True}
+
+    @app.delete("/api/hearing/tests/{tid}")
+    def delete_hearing_test(request: Request, tid: int):
+        _require_menu(_current_user(request), "hearing")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT rel_path FROM hearing_test_files WHERE test_id=%s", (tid,))
+            paths = [r["rel_path"] for r in cur.fetchall()]
+            cur.execute("DELETE FROM hearing_tests WHERE id=%s", (tid,))   # 檔案列 FK CASCADE
+            if cur.rowcount == 0:
+                raise HTTPException(404, "找不到這筆聽檢紀錄（可能已被刪除）。")
+        for rel in paths:
+            config.delete_file(rel)
+        return {"ok": True}
+
+    # 原始檔（MA42 螢幕照片／PDF 報告）：存磁碟 hearing/{tid}/，DB 只存相對路徑
+    @app.post("/api/hearing/tests/{tid}/files")
+    async def upload_hearing_file(request: Request, tid: int, filename: str = ""):
+        user = _current_user(request)
+        _require_menu(user, "hearing")
+        mime = _hearing_upload_mime(request, allow_nhax=True)
+        data = await _hearing_body(request, _NHAX_MAX if mime == _NHAX_MIME else _PHOTO_MAX)
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id FROM hearing_tests WHERE id=%s", (tid,))
+            if cur.fetchone() is None:
+                raise HTTPException(404, "找不到這筆聽檢紀錄（可能已被刪除）。")
+            rel = config.save_file("hearing_files", data, mime, tid, orig_name=filename or None)
+            cur.execute("INSERT INTO hearing_test_files "
+                        "(test_id, filename, rel_path, mime, bytes_size, created_by) "
+                        "VALUES (%s,%s,%s,%s,%s,%s)",
+                        (tid, _clean(filename), rel, mime, len(data), user["realname"]))
+            return {"id": cur.lastrowid}
+
+    def _hearing_file(fid: int) -> tuple:
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT mime, rel_path, filename FROM hearing_test_files WHERE id=%s", (fid,))
+            row = cur.fetchone()
+        if row is None:
+            raise HTTPException(404, "找不到檔案（可能已被刪除）。")
+        path = config.abs_path(row["rel_path"])
+        if not path.is_file():
+            raise HTTPException(404, "檔案遺失。")
+        return row, path
+
+    @app.get("/api/hearing/files/{fid}")
+    def get_hearing_file(request: Request, fid: int):
+        _require_menu(_current_user(request), "hearing")
+        row, path = _hearing_file(fid)
+        if row["mime"] == _NHAX_MIME:        # 瀏覽器開不了，給下載（可再匯入 Noah）
+            return FileResponse(path, media_type="application/octet-stream",
+                                filename=row["filename"] or "noah.nhax")
+        return FileResponse(path, media_type=row["mime"],
+                            headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.get("/api/hearing/files/{fid}/noah")
+    async def get_hearing_file_noah(request: Request, fid: int):
+        """開舊紀錄時重新解析存檔的 Noah 檔（選配設定不另存，原始檔就是唯一來源）。"""
+        _require_menu(_current_user(request), "hearing")
+        row, path = _hearing_file(fid)
+        if row["mime"] != _NHAX_MIME:
+            raise HTTPException(422, "這個原始檔不是 Noah 匯出檔。")
+        return await asyncio.to_thread(lambda: _parse_nhax(path.read_bytes()))
+
+    @app.delete("/api/hearing/files/{fid}")
+    def delete_hearing_file(request: Request, fid: int):
+        _require_menu(_current_user(request), "hearing")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT rel_path FROM hearing_test_files WHERE id=%s", (fid,))
+            row = cur.fetchone()
+            cur.execute("DELETE FROM hearing_test_files WHERE id=%s", (fid,))
+            if cur.rowcount == 0:
+                raise HTTPException(404, "找不到檔案（可能已被刪除）。")
+        if row:
+            config.delete_file(row["rel_path"])
+        return {"ok": True}
 
     # ── 代碼表（下拉選單選項；登入即可讀）──────────────────────
     @app.get("/api/codes")
@@ -2033,6 +2310,134 @@ uncertain(沒把握的欄位名陣列)"""
                 "announcements": announcements, "schedule": sched, "line_new": line_new,
                 "birthdays": birthdays, "warranty": warranty, "todos": todos,
                 "month": {"year": today.year, "month": today.month, "counts": counts}}
+
+    # ── 官網管理（y1web 的關於韻譯／聽力專欄／好評分享）─────────────────
+    #   規則全在 api/web_admin.py（欄位檢查、圖片處理，有單元測試），這裡只管 I/O 與權限。
+    #   資料寫進 y1web.web_posts；圖片存到官網的 media/uploads（config.WEB.media_dir）。
+    _WEB_MEDIA = Path(config.WEB["media_dir"])
+    _WEB_IMG_MAX = 15 * 1024 * 1024
+    _wlog = logging.getLogger("y1crm.web")
+
+    def _web_kind(kind: str) -> str:
+        if kind not in web_admin.KINDS:
+            raise HTTPException(422, "不支援的內容類型。")
+        return kind
+
+    async def _web_image_body(request: Request) -> bytes:
+        mime = (request.headers.get("content-type") or "").split(";")[0].strip()
+        if not mime.startswith("image/"):
+            raise HTTPException(422, "只接受圖片檔案。")
+        if int(request.headers.get("content-length") or 0) > _WEB_IMG_MAX:
+            raise HTTPException(413, "圖片超過 15MB，請縮小後再上傳。")
+        data = await request.body()
+        if len(data) > _WEB_IMG_MAX:
+            raise HTTPException(413, "圖片超過 15MB，請縮小後再上傳。")
+        return data
+
+    @app.get("/api/web/meta")
+    def web_meta(request: Request):
+        _require_menu(_current_user(request), "web")
+        return {"kinds": web_admin.KINDS, "categories": web_admin.COLUMN_CATEGORIES,
+                "statuses": web_admin.STATUSES, "site_url": config.WEB["site_url"].rstrip("/")}
+
+    @app.get("/api/web/posts")
+    def web_posts(request: Request, kind: str):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            return {"rows": web_admin.list_posts(cur, _web_kind(kind))}
+
+    def _web_save(request: Request, body: Dict[str, Any], pid: Optional[int]):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                if pid is not None:
+                    old = web_admin.get_post(cur, pid)
+                    if old is None:
+                        raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+                    kind = old["kind"]
+                else:
+                    kind = _web_kind(body.get("kind") or "")
+                clean = web_admin.clean_post(kind, body)
+                new_id = web_admin.save_post(cur, clean, user["username"], pid)
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        _wlog.info("官網管理 %s %s #%s「%s」%s", user["username"], "修改" if pid else "新增",
+                 new_id, clean["title"], clean["status"])
+        return {"ok": True, "id": new_id, "slug": clean["slug"]}
+
+    @app.post("/api/web/posts")
+    def web_post_create(request: Request, body: Dict[str, Any] = Body(...)):
+        return _web_save(request, body, None)
+
+    @app.put("/api/web/posts/{pid}")
+    def web_post_update(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        return _web_save(request, body, pid)
+
+    @app.delete("/api/web/posts/{pid}")
+    def web_post_delete(request: Request, pid: int):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        with _conn() as db, db.cursor() as cur:
+            old = web_admin.get_post(cur, pid)
+            if old is None:
+                raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+            cur.execute(f"DELETE FROM {web_admin.TABLE} WHERE id=%s", (pid,))
+            web_admin.remove_if_unused(cur, _WEB_MEDIA, old["cover"])
+        _wlog.info("官網管理 %s 刪除 #%s「%s」", user["username"], pid, old["title"])
+        return {"ok": True}
+
+    @app.put("/api/web/posts/{pid}/cover")
+    async def web_post_cover(request: Request, pid: int):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        data = await _web_image_body(request)
+        try:
+            name = web_admin.save_image(_WEB_MEDIA, data)
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        with _conn() as db, db.cursor() as cur:
+            old = web_admin.get_post(cur, pid)
+            if old is None:
+                raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=%s, updated_by=%s WHERE id=%s",
+                        (name, user["username"], pid))
+            if old["cover"] != name:
+                web_admin.remove_if_unused(cur, _WEB_MEDIA, old["cover"])
+        return {"ok": True, "cover": name}
+
+    @app.delete("/api/web/posts/{pid}/cover")
+    def web_post_cover_delete(request: Request, pid: int):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        with _conn() as db, db.cursor() as cur:
+            old = web_admin.get_post(cur, pid)
+            if old is None:
+                raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=NULL, updated_by=%s WHERE id=%s",
+                        (user["username"], pid))
+            web_admin.remove_if_unused(cur, _WEB_MEDIA, old["cover"])
+        return {"ok": True}
+
+    @app.post("/api/web/images")
+    async def web_image_upload(request: Request):
+        """內文插圖：存檔後回傳官網上的網址，前端把 ![說明](網址) 插進內文。"""
+        _require_menu(_current_user(request), "web")
+        data = await _web_image_body(request)
+        try:
+            name = web_admin.save_image(_WEB_MEDIA, data)
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        return {"ok": True, "name": name, "url": f"/media/uploads/{name}"}
+
+    @app.get("/api/web/media/{name}")
+    def web_media(request: Request, name: str):
+        """後台預覽用（官網在另一個 port，直接從這裡讀同一個檔案）。"""
+        _require_menu(_current_user(request), "web")
+        path = web_admin.image_path(_WEB_MEDIA, name)
+        if path is None or not path.is_file():
+            raise HTTPException(404, "找不到圖片。")
+        return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
 
     return app
 

@@ -343,11 +343,89 @@ def _ai_dispatch(uid: str, text: str, rt: str, cid: Optional[int]) -> bool:
     return bool(config.AI.get("auto_reply"))   # 只有自動回覆模式才算「已回應客戶」
 
 
+# ── 官網預約碼（y1web，port 8006）──────────────────────────────
+#   官網預約完成頁給客人 6 碼預約碼；客人在 LINE 傳「預約碼 XXXXXX」→ 那筆 booking_requests
+#   寫入 line_user_id，之後的前一天提醒沿用既有排程；確認訊息用 reply（免費）。
+#   一筆只能連一個 LINE。同一個 LINE 輸錯 5 次，1 小時內不再比對（防猜碼）。
+#   ⚠ 必須排在「預約」關鍵字之前：訊息含「預約」兩字，否則會被當成要一張新表單。
+_CODE_RE = re.compile(r"預約碼\s*[:：]?\s*([A-Za-z0-9]{6})")
+_BARE_CODE_RE = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")          # 官網預約碼不用 0/O、1/I
+_CODE_FAIL_MAX, _CODE_FAIL_WINDOW = 5, 3600
+_code_fails: Dict[str, List[float]] = {}
+_STORE_PHONE = "02-2341-5968"
+
+
+def _find_link_code(text: str) -> Tuple[Optional[str], bool]:
+    """回 (預約碼, 是否明確寫了「預約碼」)。只傳 6 碼也接受，但對不到就當一般訊息。"""
+    m = _CODE_RE.search(text)
+    if m:
+        return m.group(1).upper(), True
+    t = text.strip().upper()
+    return (t, False) if _BARE_CODE_RE.match(t) else (None, False)
+
+
+def link_booking_code(uid: str, code: str) -> Optional[Dict[str, Any]]:
+    """預約碼連上這個 LINE。成功（或本來就是他的）回該筆預約；無效、過期、已被別人用回 None。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT id, contact_name, req_date, req_hour, kind, line_user_id, customer_id, "
+                    "       link_expires, status FROM booking_requests WHERE link_code=%s", (code,))
+        b = cur.fetchone()
+        if b is None or b["status"] == "cancelled":
+            return None
+        if b["line_user_id"] == uid:
+            return b
+        if b["line_user_id"] or not b["link_expires"] or b["link_expires"] < datetime.now():
+            return None
+        # 這個 LINE 已由店員綁定客戶 → 順便掛上客戶（身分已確認過，不是只憑官網填的電話）
+        cur.execute("SELECT id FROM customers WHERE line_user_id=%s", (uid,))
+        c = cur.fetchone()
+        cur.execute("UPDATE booking_requests SET line_user_id=%s, customer_id=COALESCE(customer_id, %s) "
+                    "WHERE id=%s AND line_user_id IS NULL", (uid, c["id"] if c else None, b["id"]))
+        if cur.rowcount != 1:
+            return None
+        b["customer_id"] = b["customer_id"] or (c["id"] if c else None)
+    log.info("官網預約碼連上 LINE #%s uid=%s…", b["id"], uid[:12])
+    return b
+
+
+def _handle_link_code(uid: str, text: str, rt: str) -> bool:
+    """訊息含預約碼就處理並回覆。回 True＝已處理，不再走「預約」關鍵字與 AI。"""
+    code, explicit = _find_link_code(text)
+    if not code:
+        return False
+    now = time.time()
+    fails = [t for t in _code_fails.get(uid, []) if now - t < _CODE_FAIL_WINDOW]
+    if len(fails) >= _CODE_FAIL_MAX:
+        if not explicit:
+            return False
+        b, msg = None, f"預約碼輸入錯誤太多次，請一小時後再試，或直接來電 {_STORE_PHONE}。"
+    else:
+        b = link_booking_code(uid, code)
+        if b is None:
+            if not explicit:
+                return False            # 只是剛好 6 個英數字：當一般訊息處理
+            _code_fails[uid] = fails + [now]
+            msg = f"找不到這個預約碼，或已經過期。請確認後再傳一次，或直接來電 {_STORE_PHONE}。"
+        else:
+            what = "到府服務" if b.get("kind") == "home" else "到門市"
+            msg = (f"已收到您的預約 ✅\n{b['contact_name']} 您好，您預約{what}的時間是：\n"
+                   f"{_slot_label(b['req_date'], b['req_hour'])}\n"
+                   "門市人員會再打電話和您確認，預約前一天也會在這裡提醒您。")
+    cid = b.get("customer_id") if b else None
+    _upsert_follower(uid)
+    log_msg(uid, "in", "customer", text, cid)
+    reply(rt, [msg])
+    log_msg(uid, "out", "system", msg, cid, status="sent")
+    return True
+
+
 def _handle_text(ev: Dict[str, Any]) -> None:
     uid = (ev.get("source") or {}).get("userId")
     text = ((ev.get("message") or {}).get("text") or "").strip()
     rt = ev.get("replyToken") or ""
     if not uid:
+        return
+    if _handle_link_code(uid, text, rt):
         return
     if "預約" in text:          # 綁定與否都可預約（表單本就要填稱呼/電話）
         _send_booking_link(uid, rt)
@@ -393,7 +471,7 @@ def _handle_text(ev: Dict[str, Any]) -> None:
 
 # ── 線上預約（輕量版：結構化留言單，不進行事曆）──────────────
 #   流程：LINE 輸入「預約」→ 回一次性連結（綁 userId，30 分鐘）→
-#   表單選 稱呼/電話/日期(近2週)/時間(09–18 整點)/需求 → 存 booking_requests
+#   表單選 稱呼/電話/日期(近2週、週日除外)/時間(09–18 整點)/需求 → 存 booking_requests
 #   → 推播確認給客戶；店員在 CRM「預約留言」頁收單。
 _BOOKING_TTL = 1800                                  # 連結有效 30 分鐘
 _HOURS = list(range(9, 19))                          # 09:00–18:00 整點
@@ -402,10 +480,12 @@ _WD = ["一", "二", "三", "四", "五", "六", "日"]
 
 
 def _booking_dates() -> List[Dict[str, str]]:
-    """明天起 14 天（民國顯示、ISO 值）。"""
+    """明天起 14 天、週日公休不列（民國顯示、ISO 值）。官網 y1web app/booking.py 規則相同，要一起改。"""
     out = []
     for i in range(1, 15):
         d = date.today() + timedelta(days=i)
+        if d.weekday() == 6:
+            continue
         out.append({"v": d.isoformat(),
                     "label": f"{d.year - 1911}/{d.month:02d}/{d.day:02d}（{_WD[d.weekday()]}）"})
     return out
@@ -517,8 +597,9 @@ def _reminder_message(b: Dict[str, Any]) -> Dict[str, Any]:
     """組提醒用的 buttons 樣板訊息（無 title 時 text 上限 160 字）。"""
     slot = _slot_label(b["req_date"], b["req_hour"])
     name = b.get("contact_name") or ""
+    what = "到府服務時間" if b.get("kind") == "home" else "預約時間"   # kind 由官網到府預約帶入
     text = (f"【預約提醒】{name} 您好\n"
-            f"您在 睿聲助聽器-中正門市 的預約時間為\n{slot}\n"
+            f"您在 睿聲助聽器-中正門市 的{what}為\n{slot}\n"
             "確定前往請按下方按鈕；如需改期或取消，請直接留言告知門市人員。")[:160]
     return {
         "type": "template",
@@ -533,7 +614,7 @@ def _reminder_message(b: Dict[str, Any]) -> Dict[str, Any]:
 def send_booking_reminder(bid: int, force: bool = False) -> Dict[str, Any]:
     """對單筆預約送出提醒。回 {ok, msg}；已提醒過且非 force 一律不重送。"""
     with _conn() as db, db.cursor() as cur:
-        cur.execute("SELECT id, line_user_id, contact_name, req_date, req_hour, "
+        cur.execute("SELECT id, line_user_id, contact_name, req_date, req_hour, kind, "
                     "       status, reminded_at "
                     "FROM booking_requests WHERE id=%s", (bid,))
         b = cur.fetchone()

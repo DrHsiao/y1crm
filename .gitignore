@@ -16,3 +16,7 @@ __pycache__/
 archive/**/.vs/
 archive/**/bin/
 archive/**/obj/
+
+# 客戶資料：LINE 傳來的照片（Smart Fit 畫面、聽檢報告）、Noah 匯出檔，一律不進版控
+doc/S__*
+*.nhax

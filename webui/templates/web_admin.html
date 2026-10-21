@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+{% block title %}官網管理 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享；選單權限 web）────── -->
+  <div class="card" id="wa-list-card">
+    <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
+      <h3 style="flex:1; min-width:10rem;">官網管理<span class="lh" id="wa-count"></span></h3>
+      <div class="seg" id="wa-kind" data-value="about">
+        <button data-v="about">關於韻譯</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button>
+      </div>
+      <button type="button" class="btn sm" onclick="waEdit(null)">＋ 新增</button>
+      <a class="btn sm outline" id="wa-site" target="_blank" rel="noopener">在官網查看 ↗</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead id="wa-head"></thead>
+        <tbody id="wa-body"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:.8rem;" id="wa-hint"></p>
+  </div>
+
+  <div class="card hidden" id="wa-editor">
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <h3 style="flex:1;" id="wa-ed-title">編輯</h3>
+      <button type="button" class="btn sm ghost" onclick="waClose()">← 回列表</button>
+    </div>
+    <div class="wa-grid">
+      <div class="wa-main">
+        <div class="modal-field"><label>標題 <span class="req">*</span></label>
+          <input id="wa-title" maxlength="120"></div>
+        <div class="modal-row wa-only" data-kinds="about">
+          <div class="modal-field"><label>英文小標<span class="lh">顯示在標題上方，例如 Brand Story</span></label>
+            <input id="wa-en" maxlength="60"></div>
+        </div>
+        <div class="modal-row wa-only" data-kinds="article">
+          <div class="modal-field"><label>專欄分類 <span class="req">*</span></label>
+            <select id="wa-category"></select></div>
+        </div>
+        <div class="modal-row wa-only" data-kinds="share">
+          <div class="modal-field"><label>分享人稱呼 <span class="req">*</span><span class="lh">建議只寫姓氏，例如 王先生</span></label>
+            <input id="wa-person" maxlength="40"></div>
+          <div class="modal-field"><label>機種</label><input id="wa-model" maxlength="60"></div>
+          <div class="modal-field"><label>聽力狀況</label><input id="wa-hearing" maxlength="40" placeholder="例如 中度"></div>
+        </div>
+        <div class="modal-field"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
+          <textarea id="wa-summary" rows="2" maxlength="300"></textarea></div>
+        <div class="modal-field">
+          <label>內文<span class="lh">**粗體**　## 小標題　- 清單　空一行＝分段</span></label>
+          <div class="wa-tools">
+            <button type="button" class="btn sm outline" onclick="waWrap('**', '**', '粗體字')">粗體</button>
+            <button type="button" class="btn sm outline" onclick="waLine('## ', '小標題')">小標題</button>
+            <button type="button" class="btn sm outline" onclick="waLine('- ', '清單項目')">清單</button>
+            <button type="button" class="btn sm outline" onclick="waPick('body')">🖼 插入圖片</button>
+          </div>
+          <textarea id="wa-body-md" rows="18" class="wa-md"></textarea>
+        </div>
+      </div>
+      <div class="wa-side">
+        <div class="modal-field"><label>狀態</label>
+          <div class="seg" id="wa-status" data-value="draft">
+            <button data-v="draft">草稿</button><button data-v="published">發佈</button>
+          </div>
+          <div class="field-info">草稿不會出現在官網上。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="share">
+          <label class="wa-check"><input type="checkbox" id="wa-consent"> 已取得當事人同意公開</label>
+          <div class="field-info">真實客人的經驗與照片，要有本人（書面）同意才能發佈。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="article share">
+          <label>發佈日期<span class="lh" id="wa-date-hint"></span></label>
+          <input id="wa-date" inputmode="numeric">
+          <div class="field-info">空白＝發佈當天。日期在未來的，到那天才會出現在官網。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="about">
+          <label>排序<span class="lh">數字小的在上面</span></label>
+          <input id="wa-sort" type="number" step="10">
+        </div>
+        <div class="modal-field">
+          <label>封面圖</label>
+          <div id="wa-cover"></div>
+        </div>
+        <details class="wa-adv">
+          <summary>網址代稱（進階）</summary>
+          <input id="wa-slug" maxlength="80" placeholder="空白＝自動產生" autocapitalize="none" spellcheck="false">
+          <div class="field-info">官網網址的最後一段，只能用英文小寫、數字、-。</div>
+        </details>
+        <div id="wa-err" class="banner danger hidden" style="margin:.4rem 0"></div>
+        <div class="wa-actions">
+          <button type="button" class="btn" onclick="waSave()">儲存</button>
+          <button type="button" class="btn ghost" onclick="waClose()">取消</button>
+          <button type="button" class="btn outline hidden" id="wa-del" onclick="waDelete()">刪除</button>
+        </div>
+        <p class="hint" id="wa-meta"></p>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="wa-file" accept="image/*" class="hidden">
+{% endblock %}
+{% block scripts %}<script src="/static/js/web_admin.js?v={{ v }}"></script>{% endblock %}

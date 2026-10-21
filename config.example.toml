@@ -12,6 +12,7 @@ customer_photos  = "photos"
 form_images      = "forms"
 staff_photos     = "staff"
 product_attachments = "products"
+hearing_files    = "hearing"
 
 [db]
 host     = "localhost"
@@ -54,3 +55,8 @@ vision_timeout_secs = 60
 [board]
 # 店面狀態看板（免登入電視牆）：/board?k=<key>；留空＝看板整組停用
 key = ""
+
+[web]
+# 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享）：上傳的圖片存到官網的 media/uploads
+media_dir = "/home/john/y1web/media/uploads"
+site_url  = "http://192.168.1.88:8006"

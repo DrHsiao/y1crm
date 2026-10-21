@@ -35,10 +35,14 @@ MENUS = [
         {"title": "客戶資料",  "icon": "📇", "path": "/customers", "perm": "customers", "sort": 11},
         {"title": "線上預約",  "icon": "💬", "path": "/bookings",  "perm": "customers", "sort": 12},
         {"title": "LINE 客服", "icon": "🤖", "path": "/line-chat", "perm": "customers", "sort": 13},
+        {"title": "聽檢輔助",  "icon": "🎧", "path": "/hearing",   "perm": "hearing",   "sort": 14},
     ]},
     {"title": "交易", "icon": "💰", "sort": 20, "children": [
         {"title": "交易記錄", "icon": "🧾", "path": "/purchases", "perm": "purchases", "sort": 21},
         {"title": "商品管理", "icon": "📦", "path": "/products",  "perm": "products",  "sort": 22},
+    ]},
+    {"title": "官網", "icon": "🌐", "sort": 25, "children": [
+        {"title": "官網管理", "icon": "📝", "path": "/web-admin", "perm": "web", "sort": 26},
     ]},
     {"title": "系統", "icon": "⚙️", "sort": 30, "children": [
         {"title": "人員管理", "icon": "👤", "path": "/staff", "perm": "staff", "sort": 31},
@@ -50,8 +54,10 @@ MENUS = [
 PERMISSIONS = {
     "calendar":  ["admin", "manager", "sales", "user"],
     "customers": ["admin", "manager", "sales", "user"],
+    "hearing":   ["admin", "manager", "sales", "user"],
     "purchases": ["admin", "manager", "sales"],
     "products":  ["admin", "manager"],
+    "web":       ["admin", "manager"],     # 官網管理：編輯官網的關於韻譯／聽力專欄／好評分享
     "staff":     ["admin"],
 }
 
