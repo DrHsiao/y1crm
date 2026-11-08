@@ -36,6 +36,8 @@ MENUS = [
         {"title": "線上預約",  "icon": "💬", "path": "/bookings",  "perm": "customers", "sort": 12},
         {"title": "LINE 客服", "icon": "🤖", "path": "/line-chat", "perm": "customers", "sort": 13},
         {"title": "聽檢輔助",  "icon": "🎧", "path": "/hearing",   "perm": "hearing",   "sort": 14},
+        {"title": "保養提醒",  "icon": "🔔", "path": "/care-reminders", "perm": "customers", "sort": 15},
+        {"title": "粉專訊息",  "icon": "📘", "path": "/fb-chat",   "perm": "customers", "sort": 16},
     ]},
     {"title": "交易", "icon": "💰", "sort": 20, "children": [
         {"title": "交易記錄", "icon": "🧾", "path": "/purchases", "perm": "purchases", "sort": 21},
@@ -57,7 +59,7 @@ PERMISSIONS = {
     "hearing":   ["admin", "manager", "sales", "user"],
     "purchases": ["admin", "manager", "sales"],
     "products":  ["admin", "manager"],
-    "web":       ["admin", "manager"],     # 官網管理：編輯官網的關於韻譯／聽力專欄／好評分享
+    "web":       ["admin", "manager"],     # 官網管理：關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手
     "staff":     ["admin"],
 }
 

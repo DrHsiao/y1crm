@@ -123,6 +123,21 @@ _SYSTEM = f"""你是台灣「睿聲助聽器-中正門市」的 LINE 客服助�
 {KNOWLEDGE}
 """
 
+# 其他管道（api/fb_page.py）：同一套規則與知識庫，只補一段說明；LINE 不加任何東西
+_CHANNEL_NOTE = {
+    "messenger": "\n補充：這次是在 Facebook 粉專的 Messenger 私訊回覆客人，不是 LINE。"
+                 "要預約請對方來電，或加門市的 LINE 官方帳號後輸入「預約」。\n",
+    "comment": "\n補充：這次是回覆 Facebook 粉專貼文底下的**公開留言**，所有人都看得到。"
+               "回覆控制在 60 字以內；不可提到或詢問對方的姓名、電話、聽力狀況或病情；"
+               "需要個別說明的，請對方私訊粉專或來電。\n",
+}
+
+
+def system_prompt(channel: str = "line") -> str:
+    max_chars = int(config.AI.get("max_chars") or 150)
+    return _SYSTEM.format(max_chars=max_chars) + _CHANNEL_NOTE.get(channel, "")
+
+
 # 輸出端第二道：金額樣式與價格字眼
 _MONEY_RE = re.compile(r"(\d[\d,]{2,})\s*(元|塊|圓|NT|台幣|新台幣)|[$＄]\s*\d")
 _PRICE_WORDS = ("售價", "定價", "報價", "價格是", "價錢是", "折扣", "特價", "優惠價")
@@ -187,10 +202,10 @@ def sorry_text() -> str:
     return random.choice(_SORRY)
 
 
-def _generate(question: str, history: List[Dict[str, str]], budget: float) -> str:
+def _generate(question: str, history: List[Dict[str, str]], budget: float,
+              channel: str = "line") -> str:
     """呼叫本機模型。⚠ 純文字，永不帶 images。"""
-    max_chars = int(config.AI.get("max_chars") or 150)
-    msgs = [{"role": "system", "content": _SYSTEM.format(max_chars=max_chars)}]
+    msgs = [{"role": "system", "content": system_prompt(channel)}]
     msgs += history[-6:]                       # 只帶最近三輪，控制 prompt 長度
     msgs.append({"role": "user", "content": question})
     payload = {
@@ -288,8 +303,9 @@ def describe_image(path: str, mime: str = "image/jpeg") -> Dict[str, Any]:
             "elapsed": round(time.time() - t0, 1)}
 
 
-def answer(question: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
-    """產生一則回覆。
+def answer(question: str, history: Optional[List[Dict[str, str]]] = None,
+           channel: str = "line") -> Dict[str, Any]:
+    """產生一則回覆。channel：line（預設）／messenger／comment（粉專公開留言）。
 
     回傳 {kind, text, reason, elapsed}：
       reply   → 可直接回客戶（或當草稿）
@@ -304,7 +320,7 @@ def answer(question: str, history: Optional[List[Dict[str, str]]] = None) -> Dic
 
     budget = float(config.AI.get("timeout_secs") or 30)
     try:
-        ans = _generate(question, history or [], budget)
+        ans = _generate(question, history or [], budget, channel)
     except Exception as e:  # noqa: BLE001 — 逾時/模型異常都走道歉文，不可讓客戶已讀不回
         log.warning("AI 生成失敗（%.1fs）：%s", time.time() - t0, e)
         return {"kind": "timeout", "reason": "timeout", "text": sorry_text(),

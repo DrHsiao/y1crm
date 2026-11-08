@@ -1,16 +1,23 @@
 {% extends "layout.html" %}
 {% block title %}官網管理 — y1crm{% endblock %}
 {% block content %}
-  <!-- ── 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享；選單權限 web）────── -->
+  <!-- ── 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手；選單權限 web）── -->
   <div class="card" id="wa-list-card">
     <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
       <h3 style="flex:1; min-width:10rem;">官網管理<span class="lh" id="wa-count"></span></h3>
       <div class="seg" id="wa-kind" data-value="about">
-        <button data-v="about">關於韻譯</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button>
+        <button data-v="about">關於韻譯</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button><button data-v="care">使用小教室</button><button data-v="subsidy">補助小幫手</button>
       </div>
       <button type="button" class="btn sm" onclick="waEdit(null)">＋ 新增</button>
       <a class="btn sm outline" id="wa-site" target="_blank" rel="noopener">在官網查看 ↗</a>
+      <a class="btn sm outline hidden" id="wa-qr" target="_blank" rel="noopener">列印 QR 貼紙 ↗</a>
     </div>
+    <p class="hint" style="margin:-.3rem 0 .8rem;">官網網址：<b id="wa-site-url"></b>
+      <button type="button" class="btn sm ghost" onclick="waSiteUrl()">修改</button>
+      <span class="lh">換網域時改這裡一次就好：分享連結、QR 貼紙、sitemap、保養提醒訊息都會跟著換。</span></p>
+    <p class="hint hidden" style="margin:-.3rem 0 .8rem;" id="wa-links">「看全部評論」連結：<span id="wa-links-v"></span>
+      <button type="button" class="btn sm ghost" onclick="waShareLinks()">修改</button>
+      <span class="lh">好評分享頁最下面「到 Google 地圖看全部評論」的連結；點開評論時視窗裡的 Google 地圖。</span></p>
     <div class="table-wrap">
       <table>
         <thead id="wa-head"></thead>
@@ -27,8 +34,49 @@
     </div>
     <div class="wa-grid">
       <div class="wa-main">
-        <div class="modal-field"><label>標題 <span class="req">*</span></label>
+        <div class="modal-field wa-only" data-kinds="share quote"><label>格式</label>
+          <div class="seg" id="wa-format" data-value="quote">
+            <button data-v="quote">評論轉貼</button><button data-v="story">心得文章</button>
+          </div>
+          <div class="field-info">評論轉貼：Google 地圖等平台上的評論，原文照登或節錄。心得文章：客人的故事，有自己的網頁，可以放照片。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="about article share care subsidy"><label>標題 <span class="req">*</span></label>
           <input id="wa-title" maxlength="120"></div>
+        <div class="modal-field wa-only" data-kinds="quote">
+          <label>貼上整段評論<span class="lh">用電腦打開 Google 地圖的門市評論，從評論者名字選到評論最後一個字（長評論先按「更多」），複製後貼在這裡</span></label>
+          <textarea id="wa-paste" rows="5"></textarea>
+          <div class="wa-tools"><button type="button" class="btn sm" onclick="waParse()">拆解</button></div>
+          <div id="wa-parse-msg"></div>
+        </div>
+        <div class="modal-row wa-only" data-kinds="quote">
+          <div class="modal-field"><label>平台 <span class="req">*</span></label><select id="wa-platform"></select></div>
+          <div class="modal-field" id="wa-rating-f"><label>星等 <span class="req">*</span><span class="lh">複製不到星星，請對照</span></label>
+            <select id="wa-rating"><option value="5">★★★★★ 5</option><option value="4">★★★★ 4</option>
+              <option value="3">★★★ 3</option><option value="2">★★ 2</option><option value="1">★ 1</option></select></div>
+          <div class="modal-field"><label>評論日期<span class="lh" id="wa-posted-hint"></span></label>
+            <input id="wa-posted" inputmode="numeric">
+            <div class="field-info">官網只顯示年月。</div></div>
+        </div>
+        <div class="modal-row wa-only" data-kinds="quote">
+          <div class="modal-field"><label>評論帳號<span class="lh">評論者在平台上的名字</span></label>
+            <input id="wa-author" maxlength="60"></div>
+          <div class="modal-field"><label>官網顯示的名稱<span class="lh">空白＝評論帳號末 3 個字換成 *</span></label>
+            <input id="wa-qperson" maxlength="40"></div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="quote" id="wa-url-f">
+          <label>原文連結<span class="lh" id="wa-url-hint">選填：在那則評論按「分享評論」→「複製連結」</span></label>
+          <input id="wa-url" maxlength="300" placeholder="https://maps.app.goo.gl/…" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="modal-field wa-only" data-kinds="quote">
+          <label>評論原文 <span class="req">*</span><span class="lh">照貼，不要改（官網不顯示，用來核對節錄）</span></label>
+          <textarea id="wa-original" rows="5"></textarea>
+          <div class="wa-tools"><button type="button" class="btn sm outline" onclick="waCheck()">檢查用語</button></div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="quote">
+          <label>官網顯示的文字<span class="lh">空白＝原文照登。只能刪字，不能改字；刪掉的地方用「……」標出來</span></label>
+          <textarea id="wa-shown" rows="5"></textarea>
+          <div id="wa-flags"></div>
+        </div>
         <div class="modal-row wa-only" data-kinds="about">
           <div class="modal-field"><label>英文小標<span class="lh">顯示在標題上方，例如 Brand Story</span></label>
             <input id="wa-en" maxlength="60"></div>
@@ -43,9 +91,26 @@
           <div class="modal-field"><label>機種</label><input id="wa-model" maxlength="60"></div>
           <div class="modal-field"><label>聽力狀況</label><input id="wa-hearing" maxlength="40" placeholder="例如 中度"></div>
         </div>
-        <div class="modal-field"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
+        <div class="modal-field wa-only" data-kinds="care">
+          <label>適用的助聽器<span class="lh">都不勾＝每一種都適用；官網產品頁會依外型和電源帶出相關教學</span></label>
+          <div class="wa-checks" id="wa-types"></div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="subsidy">
+          <label>適用條件<span class="lh">全部符合才列為「可能適用」；都不勾＝一般資訊，每個人都會看到</span></label>
+          <div class="wa-checks" id="wa-when"></div>
+        </div>
+        <div class="modal-row wa-only" data-kinds="subsidy">
+          <div class="modal-field"><label>受理單位</label><input id="wa-agency" maxlength="60" placeholder="例如 戶籍地區公所"></div>
+          <div class="modal-field"><label>官方網址<span class="lh">連到政府機關的說明頁</span></label>
+            <input id="wa-link" maxlength="300" placeholder="https://" autocapitalize="none" spellcheck="false"></div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="care">
+          <label>影片連結<span class="lh">選填：原廠或門市自己拍的教學影片（官網用新分頁開啟）</span></label>
+          <input id="wa-video" maxlength="300" placeholder="https://" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="modal-field wa-only" data-kinds="about article share care subsidy"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
           <textarea id="wa-summary" rows="2" maxlength="300"></textarea></div>
-        <div class="modal-field">
+        <div class="modal-field wa-only" data-kinds="about article share care subsidy">
           <label>內文<span class="lh">**粗體**　## 小標題　- 清單　空一行＝分段</span></label>
           <div class="wa-tools">
             <button type="button" class="btn sm outline" onclick="waWrap('**', '**', '粗體字')">粗體</button>
@@ -63,24 +128,24 @@
           </div>
           <div class="field-info">草稿不會出現在官網上。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="share">
+        <div class="modal-field wa-only" data-kinds="share quote">
           <label class="wa-check"><input type="checkbox" id="wa-consent"> 已取得當事人同意公開</label>
-          <div class="field-info">真實客人的經驗與照片，要有本人（書面）同意才能發佈。</div>
+          <div class="field-info">真實客人的經驗、照片和評論，要有本人同意才能發佈。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="article share">
+        <div class="modal-field wa-only" data-kinds="article share quote">
           <label>發佈日期<span class="lh" id="wa-date-hint"></span></label>
           <input id="wa-date" inputmode="numeric">
           <div class="field-info">空白＝發佈當天。日期在未來的，到那天才會出現在官網。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="about">
+        <div class="modal-field wa-only" data-kinds="about care subsidy">
           <label>排序<span class="lh">數字小的在上面</span></label>
           <input id="wa-sort" type="number" step="10">
         </div>
-        <div class="modal-field">
-          <label>封面圖</label>
+        <div class="modal-field wa-only" data-kinds="about article share quote care subsidy">
+          <label id="wa-cover-label">封面圖</label>
           <div id="wa-cover"></div>
         </div>
-        <details class="wa-adv">
+        <details class="wa-adv wa-only" data-kinds="about article share care subsidy">
           <summary>網址代稱（進階）</summary>
           <input id="wa-slug" maxlength="80" placeholder="空白＝自動產生" autocapitalize="none" spellcheck="false">
           <div class="field-info">官網網址的最後一段，只能用英文小寫、數字、-。</div>
@@ -89,6 +154,7 @@
         <div class="wa-actions">
           <button type="button" class="btn" onclick="waSave()">儲存</button>
           <button type="button" class="btn ghost" onclick="waClose()">取消</button>
+          <button type="button" class="btn outline hidden" id="wa-fb" onclick="waShareFb()">📘 分享到粉專</button>
           <button type="button" class="btn outline hidden" id="wa-del" onclick="waDelete()">刪除</button>
         </div>
         <p class="hint" id="wa-meta"></p>

@@ -45,7 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import dbpool, hearing, line_bot, noah, web_admin
+from api import care_reminders, dbpool, fb_page, hearing, line_bot, noah, web_admin
 from api.line_bot import router as line_router
 
 # DB 連線參數取自 config（config.toml / 環境變數），機密不再寫死於程式碼
@@ -311,6 +311,7 @@ _PURCHASE_ENUMS = {
 def create_app() -> FastAPI:
     app = FastAPI(title="y1crm", docs_url="/api/docs", redoc_url=None)
     app.include_router(line_router)   # LINE webhook（api/line_bot.py；簽章驗證、不走 session）
+    app.include_router(fb_page.router)   # Facebook 粉專 webhook（api/fb_page.py；同上）
     line_bot.start_reminder_scheduler()   # 預約提醒背景排程（每日固定時間推播）
 
     # ── MPA：每個主功能一頁（layout 繼承共用 header/CSS/JS）────────
@@ -349,6 +350,10 @@ def create_app() -> FastAPI:
     def page_bookings(request: Request):
         return _page(request, "bookings.html", "bookings")
 
+    @app.get("/care-reminders")
+    def page_care_reminders(request: Request):
+        return _page(request, "care_reminders.html", "care-reminders")
+
     @app.get("/purchases")
     def page_purchases(request: Request):
         return _page(request, "purchases.html", "purchases")
@@ -356,6 +361,10 @@ def create_app() -> FastAPI:
     @app.get("/line-chat")
     def page_line_chat(request: Request):
         return _page(request, "line_chat.html", "line-chat")
+
+    @app.get("/fb-chat")
+    def page_fb_chat(request: Request):
+        return _page(request, "fb_chat.html", "fb-chat")
 
     @app.get("/hearing")
     def page_hearing(request: Request):
@@ -797,6 +806,91 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     # ── 預約留言（LINE 線上預約收單；輕量版，不進行事曆）────────
+    # ── 保養提醒（規則在 api/care_reminders.py）──────────────────────
+    #   John 2026-10-22：先只列名單、預覽 LINE 訊息，不自動傳給客人；店員可按「加到行事曆」建 follow_up_reminders。
+    def _store_contact(cur) -> Dict[str, str]:
+        """訊息裡的店名、電話：用官網的門市設定（y1web.web_settings），讀不到就用 LINE 機器人的寫法。"""
+        try:
+            cur.execute("SELECT v FROM y1web.web_settings WHERE k='store'")
+            r = cur.fetchone()
+            v = json.loads(r["v"]) if r and isinstance(r["v"], (str, bytes)) else (r["v"] if r else {})
+            if v.get("name") and v.get("phone"):
+                return {"name": v["name"], "phone": v["phone"]}
+        except pymysql.MySQLError:
+            pass
+        return {"name": "睿聲助聽器-中正門市", "phone": ""}
+
+    @app.get("/api/care-reminders")
+    def care_reminder_list(request: Request, ahead: int = care_reminders.DEFAULT_AHEAD):
+        _require_menu(_current_user(request), "customers")
+        ahead = max(7, min(ahead, 120))
+        today = date.today()
+        with _conn() as db, db.cursor() as cur:
+            # 助聽器的購買／租借（沒選商品的交易也算：店裡的交易大多是助聽器，名單上會標「未選商品」）；
+            # 之後同一機型退貨的不算
+            cur.execute(
+                "SELECT p.id, p.customer_id, p.transaction_date, p.warranty_end_date, pr.brand, pr.model_name "
+                "FROM purchases p LEFT JOIN products pr ON pr.id = p.product_id "
+                "WHERE p.transaction_type IN ('purchase','rental') AND (pr.id IS NULL OR pr.category = 'hearing_aid') "
+                "  AND NOT EXISTS (SELECT 1 FROM purchases r WHERE r.customer_id = p.customer_id "
+                "    AND r.product_id = p.product_id AND r.transaction_type = 'return' "
+                "    AND r.transaction_date >= p.transaction_date)")
+            buys = {b["id"]: b for b in cur.fetchall()}
+            cur.execute("SELECT customer_id, reminder_type, scheduled_date, status FROM follow_up_reminders "
+                        "WHERE scheduled_date >= %s", (today - timedelta(days=care_reminders.DEDUP_DAYS + 200),))
+            items = care_reminders.due_items(buys.values(), cur.fetchall(), today, ahead)
+            cids = tuple({i["customer_id"] for i in items}) or (0,)
+            cur.execute("SELECT id, name, gender, customer_code, phone_mobile, line_user_id FROM customers "
+                        "WHERE id IN %s", (cids,))
+            custs = {c["id"]: c for c in cur.fetchall()}
+            cur.execute("SELECT customer_id, MIN(req_date) AS d FROM booking_requests WHERE customer_id IN %s "
+                        "AND status <> 'cancelled' AND req_date >= %s GROUP BY customer_id", (cids, today))
+            booked = {r["customer_id"]: r["d"] for r in cur.fetchall()}
+            store = _store_contact(cur)
+            care_url = web_admin.get_site_url(cur, config.WEB["site_url"]) + "/care"
+        rows = []
+        for it in items:
+            c, b = custs.get(it["customer_id"]), buys[it["purchase_id"]]
+            if not c:
+                continue
+            model = " ".join(x for x in (b["brand"], b["model_name"]) if x)          # 沒選商品＝空字串
+            rows.append({"customer_id": c["id"], "customer_name": c["name"], "customer_code": c["customer_code"],
+                         "phone": c["phone_mobile"], "line": bool(c["line_user_id"]),
+                         "purchase_id": it["purchase_id"], "model": model, "type": it["type"], "label": it["label"],
+                         "due": it["due"].isoformat(), "overdue": it["overdue"],
+                         "transaction_date": b["transaction_date"].isoformat(),
+                         "booked": booked[c["id"]].isoformat() if c["id"] in booked else None,
+                         "message": care_reminders.message(it, care_reminders.salutation(c["name"], c["gender"]),
+                                                           model, store["name"], store["phone"], care_url)})
+        return {"rows": rows, "today": today.isoformat(), "ahead": ahead, "send_enabled": False}
+
+    @app.post("/api/care-reminders")
+    def care_reminder_schedule(request: Request, body: Dict[str, Any] = Body(...)):
+        """「加到行事曆」：建一筆回訪提醒（follow_up_reminders），行事曆和看板會顯示。"""
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        rtype = body.get("type")
+        if rtype not in care_reminders.TYPE_LABEL:
+            raise HTTPException(422, "提醒類型不正確。")
+        due_iso = _parse_date(str(body.get("due") or ""))
+        if not due_iso:
+            raise HTTPException(422, "日期不正確。")
+        due = date.fromisoformat(due_iso)
+        try:
+            cid, pid = int(body.get("customer_id")), int(body.get("purchase_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "缺少客戶或交易。")
+        label = str(body.get("label") or care_reminders.TYPE_LABEL[rtype])[:20]
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT id FROM purchases WHERE id=%s AND customer_id=%s", (pid, cid))
+            if not cur.fetchone():
+                raise HTTPException(404, "找不到這筆交易。")
+            cur.execute("INSERT INTO follow_up_reminders (customer_id, purchase_id, reminder_type, scheduled_date, "
+                        "status, notes) VALUES (%s,%s,%s,%s,'pending',%s)",
+                        (cid, pid, rtype, max(due, date.today()), f"{label}（保養提醒名單，{user['username']} 建立）"))
+            rid = cur.lastrowid
+        return {"ok": True, "id": rid}
+
     @app.get("/api/bookings")
     def list_bookings(request: Request, status: str = ""):
         _require_menu(_current_user(request), "customers")
@@ -978,6 +1072,112 @@ def create_app() -> FastAPI:
                             (row["line_user_id"], text, f"由 {user['realname']} 送出"))
             cur.execute("UPDATE line_messages SET status=%s, text=%s WHERE id=%s",
                         (st, text, mid))
+        return {"ok": True}
+
+    # ── Facebook 粉專訊息（Messenger 私訊＋貼文留言；規則在 api/fb_page.py）─────────
+    #   和 LINE 不同：粉專的回覆直接從這裡送（不收費、不佔額度），所以這頁可以回覆。
+    _flog = logging.getLogger("y1crm.fb")
+
+    def _fb_thread(cur, tid: int) -> Dict[str, Any]:
+        t = fb_page.get_thread(cur, tid)
+        if t is None:
+            raise HTTPException(404, "找不到這段對話（可能已被刪除）。")
+        return t
+
+    @app.get("/api/fb/threads")
+    def fb_threads(request: Request):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute(
+                "SELECT t.id, t.kind, t.person_name, t.post_id, t.last_in_at, t.last_msg_at, "
+                "       CASE WHEN t.mode='human' AND (t.human_until IS NULL OR t.human_until > NOW()) "
+                "            THEN 'human' ELSE 'bot' END AS mode, "
+                "       t.human_until, t.assigned_to, t.handoff_reason, "
+                "       (t.last_in_at IS NOT NULL AND (t.last_out_at IS NULL OR t.last_out_at < t.last_in_at) "
+                "        AND (t.handled_at IS NULL OR t.handled_at < t.last_in_at)) AS pending, "
+                "       (t.kind='comment' OR t.last_in_at > NOW() - INTERVAL %s HOUR) AS can_reply, "
+                "       (SELECT text FROM fb_messages m WHERE m.thread_id=t.id AND m.source<>'ai_draft' "
+                "          ORDER BY m.id DESC LIMIT 1) AS last_text, "
+                "       (SELECT COUNT(*) FROM fb_messages m WHERE m.thread_id=t.id AND m.source='ai_draft' "
+                "          AND m.status='new') AS drafts, "
+                "       (SELECT w.title FROM fb_posts p JOIN y1web.web_posts w ON w.id=p.web_post_id "
+                "          WHERE p.fb_post_id=t.post_id ORDER BY p.id DESC LIMIT 1) AS post_title "
+                "FROM fb_threads t ORDER BY t.last_msg_at DESC, t.id DESC LIMIT 100",
+                (fb_page.WINDOW_HOURS,))
+            rows = [_row_json(r) for r in cur.fetchall()]
+        for r in rows:
+            r["pending"], r["can_reply"] = bool(r["pending"]), bool(r["can_reply"])
+        return {"rows": rows, "dev_mode": fb_page.dev_mode(), "ai_reply": fb_page.ai_reply_mode(),
+                "ai_enabled": bool(config.AI.get("enabled")), "window_hours": fb_page.WINDOW_HOURS}
+
+    @app.get("/api/fb/threads/{tid}/messages")
+    def fb_thread_messages(request: Request, tid: int):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            _fb_thread(cur, tid)
+            cur.execute("SELECT id, direction, source, text, status, meta, created_by, created_at "
+                        "FROM fb_messages WHERE thread_id=%s ORDER BY id DESC LIMIT 100", (tid,))
+            rows = [_row_json(r) for r in reversed(cur.fetchall())]
+        return {"rows": rows}
+
+    @app.post("/api/fb/threads/{tid}/reply")
+    def fb_thread_reply(request: Request, tid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        draft = body.get("draft_id")
+        try:
+            r = fb_page.staff_reply(tid, str(body.get("text") or ""), user["realname"],
+                                    int(draft) if draft else None)
+        except LookupError:
+            raise HTTPException(404, "找不到這段對話（可能已被刪除）。")
+        except fb_page.GraphError as e:
+            raise HTTPException(422, str(e))
+        _flog.info("粉專回覆 thread=%s 由 %s %s", tid, user["realname"], "已送出" if r["sent"] else "（開發模式）")
+        return {"ok": True, **r}
+
+    @app.put("/api/fb/threads/{tid}/mode")
+    def fb_thread_mode(request: Request, tid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        mode = _clean(body.get("mode"))
+        if mode not in ("bot", "human"):
+            raise HTTPException(422, "mode 須為 bot 或 human。")
+        with _conn() as db, db.cursor() as cur:
+            _fb_thread(cur, tid)
+            if mode == "human":
+                fb_page.set_human(cur, tid, "staff", user["realname"])
+            else:
+                fb_page.set_bot(cur, tid)
+        return {"ok": True, "mode": mode}
+
+    @app.put("/api/fb/threads/{tid}/handled")
+    def fb_thread_handled(request: Request, tid: int):
+        """「不用回」：例如只留了一個讚或謝謝，清掉待回標記。"""
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            _fb_thread(cur, tid)
+            cur.execute("UPDATE fb_threads SET handled_at=NOW() WHERE id=%s", (tid,))
+        return {"ok": True}
+
+    @app.delete("/api/fb/threads/{tid}")
+    def fb_thread_delete(request: Request, tid: int):
+        """客人要求刪除資料時用：只刪我們這邊的紀錄，Facebook 上的留言／私訊不受影響。"""
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        with _conn() as db, db.cursor() as cur:
+            t = _fb_thread(cur, tid)
+            cur.execute("DELETE FROM fb_threads WHERE id=%s", (tid,))   # 訊息跟著 CASCADE 刪掉
+        _flog.info("粉專對話 #%s（%s）已由 %s 刪除", tid, t["kind"], user["realname"])
+        return {"ok": True}
+
+    @app.put("/api/fb/drafts/{mid}")
+    def fb_draft_discard(request: Request, mid: int):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("UPDATE fb_messages SET status='discarded' WHERE id=%s AND source='ai_draft' "
+                        "AND status='new'", (mid,))
+            if cur.rowcount == 0:
+                raise HTTPException(422, "這則 AI 建議已經處理過了。")
         return {"ok": True}
 
     # ── 客戶 ──────────────────────────────────────────────────
@@ -2311,7 +2511,7 @@ uncertain(沒把握的欄位名陣列)"""
                 "birthdays": birthdays, "warranty": warranty, "todos": todos,
                 "month": {"year": today.year, "month": today.month, "counts": counts}}
 
-    # ── 官網管理（y1web 的關於韻譯／聽力專欄／好評分享）─────────────────
+    # ── 官網管理（y1web 的關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手）─────────
     #   規則全在 api/web_admin.py（欄位檢查、圖片處理，有單元測試），這裡只管 I/O 與權限。
     #   資料寫進 y1web.web_posts；圖片存到官網的 media/uploads（config.WEB.media_dir）。
     _WEB_MEDIA = Path(config.WEB["media_dir"])
@@ -2337,8 +2537,51 @@ uncertain(沒把握的欄位名陣列)"""
     @app.get("/api/web/meta")
     def web_meta(request: Request):
         _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            site = web_admin.get_site_url(cur, config.WEB["site_url"])
+            links = web_admin.get_share_links(cur)
+        platforms = {k: {"label": label, "stars": stars, "link": "none" if domains == () else "yes",
+                         "all": bool(domains)}
+                     for k, (label, domains, stars) in web_admin.SHARE_PLATFORMS.items()}
         return {"kinds": web_admin.KINDS, "categories": web_admin.COLUMN_CATEGORIES,
-                "statuses": web_admin.STATUSES, "site_url": config.WEB["site_url"].rstrip("/")}
+                "care_types": web_admin.CARE_TYPES, "subsidy_conditions": web_admin.SUBSIDY_CONDITIONS,
+                "statuses": web_admin.STATUSES, "site_url": site, "share_formats": web_admin.SHARE_FORMATS,
+                "share_platforms": platforms, "share_links": links}
+
+    @app.put("/api/web/site")
+    def web_site_update(request: Request, body: Dict[str, Any] = Body(...)):
+        """官網網址（換網域時改這裡一次就好）。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                url = web_admin.set_site_url(cur, body.get("base_url"), user["username"])
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        _wlog.info("官網管理 %s 官網網址改為 %s", user["username"], url)
+        return {"ok": True, "site_url": url}
+
+    @app.put("/api/web/share-links")
+    def web_share_links_update(request: Request, body: Dict[str, Any] = Body(...)):
+        """好評分享頁的「到 Google 地圖看全部評論」這類連結。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                links = web_admin.set_share_links(cur, body, user["username"])
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        _wlog.info("官網管理 %s 好評分享連結改為 %s", user["username"], links)
+        return {"ok": True, "share_links": links}
+
+    @app.post("/api/web/share/draft")
+    def web_share_draft(request: Request, body: Dict[str, Any] = Body(...)):
+        """評論轉貼：拆解整段複製的評論（text），或只檢查原文（original）；回建議的節錄。不存檔。"""
+        _require_menu(_current_user(request), "web")
+        try:
+            return web_admin.review_draft(str(body.get("text") or ""), str(body.get("original") or ""))
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
 
     @app.get("/api/web/posts")
     def web_posts(request: Request, kind: str):
@@ -2359,6 +2602,9 @@ uncertain(沒把握的欄位名陣列)"""
                 else:
                     kind = _web_kind(body.get("kind") or "")
                 clean = web_admin.clean_post(kind, body)
+                # 評論轉貼有療效／誇大用語：先回 warnings，店員確認後帶 force=true 再存一次
+                if clean.get("warnings") and not body.get("force"):
+                    return {"ok": False, "warnings": clean["warnings"]}
                 new_id = web_admin.save_post(cur, clean, user["username"], pid)
         except web_admin.Invalid as e:
             raise HTTPException(422, str(e))
@@ -2387,13 +2633,70 @@ uncertain(沒把握的欄位名陣列)"""
         _wlog.info("官網管理 %s 刪除 #%s「%s」", user["username"], pid, old["title"])
         return {"ok": True}
 
+    # 分享到粉專：只有聽力專欄、使用小教室（有自己的網頁）而且已經在官網看得到的才能分享。
+    def _web_share_target(cur, pid: int) -> Dict[str, Any]:
+        cur.execute(f"SELECT id, kind, slug, title, summary, status, publish_at FROM {web_admin.TABLE} "
+                    f"WHERE id=%s", (pid,))
+        post = cur.fetchone()
+        if post is None:
+            raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+        site = web_admin.get_site_url(cur, config.WEB["site_url"])
+        link = fb_page.post_url(site, post["kind"], post["slug"])
+        reason = None
+        if not link:
+            reason = "只有「聽力專欄」和「使用小教室」的文章可以分享到粉專。"
+        elif post["status"] != "published":
+            reason = "請先把這篇改成「發佈」並儲存。"
+        elif post["publish_at"] and post["publish_at"] > datetime.now():
+            reason = "這篇的發佈日期還沒到，官網上還看不到。"
+        return {**post, "link": link, "reason": reason}
+
+    @app.get("/api/web/posts/{pid}/facebook")
+    def web_post_fb_info(request: Request, pid: int):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            t = _web_share_target(cur, pid)
+            cur.execute("SELECT status, fb_post_id, error, created_by, created_at FROM fb_posts "
+                        "WHERE web_post_id=%s ORDER BY id DESC LIMIT 10", (pid,))
+            hist = [_row_json(r) for r in cur.fetchall()]
+        return {"link": t["link"], "reason": t["reason"], "dev_mode": fb_page.dev_mode(),
+                "text": fb_page.default_post_text(t["title"], t["summary"] or ""), "history": hist}
+
+    @app.post("/api/web/posts/{pid}/facebook")
+    def web_post_fb_share(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        """發到粉專。價格字眼一律擋；療效／誇大用語回 warnings，店員確認後帶 force=true 再送一次。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        message = str(body.get("message") or "").strip()
+        errors, warns = fb_page.check_post_text(message)
+        if errors:
+            raise HTTPException(422, " ".join(errors))
+        if warns and not body.get("force"):
+            return {"ok": False, "warnings": warns}
+        with _conn() as db, db.cursor() as cur:
+            t = _web_share_target(cur, pid)
+            if t["reason"]:
+                raise HTTPException(422, t["reason"])
+            try:
+                fid = fb_page.publish_link(message, t["link"])
+                status, err = ("sent" if fid else "dev"), None
+            except fb_page.GraphError as e:
+                fid, status, err = None, "failed", str(e)
+            cur.execute("INSERT INTO fb_posts (web_post_id, fb_post_id, message, link, status, error, created_by) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (pid, fid, message, t["link"], status, err and err[:255], user["username"]))
+        _wlog.info("官網管理 %s 分享 #%s 到粉專：%s %s", user["username"], pid, status, fid or err or "")
+        if status == "failed":
+            raise HTTPException(502, err)
+        return {"ok": True, "status": status, "fb_post_id": fid}
+
     @app.put("/api/web/posts/{pid}/cover")
     async def web_post_cover(request: Request, pid: int):
         user = _current_user(request)
         _require_menu(user, "web")
         data = await _web_image_body(request)
         try:
-            name = web_admin.save_image(_WEB_MEDIA, data)
+            name = web_admin.save_image(_WEB_MEDIA, data, thumb=True)
         except web_admin.Invalid as e:
             raise HTTPException(422, str(e))
         with _conn() as db, db.cursor() as cur:

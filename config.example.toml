@@ -40,6 +40,16 @@ reminder_enabled     = true
 reminder_hour        = 18    # 0–23 整點，每日只跑一次
 reminder_days_ahead  = 1     # 1＝提醒明天的預約
 
+[facebook]
+# Facebook 粉專（api/fb_page.py）。page_token 未設＝開發模式：發文與回覆只記 log 不真發
+page_id       = ""
+app_id        = ""
+app_secret    = ""        # 機密：驗 webhook 簽章
+page_token    = ""        # 機密：Meta 企業管理平台「系統用戶」產生的權杖（不會過期；程式會自己換成粉專權杖，粉專權杖也可以直接貼）
+verify_token  = ""        # 自己產生的亂碼（例：python3 -c "import secrets;print(secrets.token_urlsafe(24))"），同一串貼到 Meta 後台
+graph_version = "v24.0"
+ai_reply      = "draft"   # Messenger 私訊：off／draft（只產草稿）／auto（直接回）；公開留言一律只產草稿
+
 [ai]
 # LINE 客服 AI（本機 ollama-573 純文字實例；⚠ 絕不可送影像，那張卡 vision 推論會崩）
 enabled           = true
@@ -59,4 +69,4 @@ key = ""
 [web]
 # 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享）：上傳的圖片存到官網的 media/uploads
 media_dir = "/home/john/y1web/media/uploads"
-site_url  = "http://192.168.1.88:8006"
+site_url  = "http://192.168.1.88:8006"   # 備用：正式值在「官網管理 → 官網網址」，換網域改那裡

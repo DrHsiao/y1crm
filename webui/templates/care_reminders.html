@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}保養提醒 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 保養提醒（依交易紀錄算出該回門市的客人；目前只列名單、預覽訊息，不會自動傳給客人）── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
+      <h3 style="flex:1; min-width:10rem;">保養提醒<span class="lh" id="cr-count"></span></h3>
+      <div class="seg" id="cr-ahead" data-value="30">
+        <button data-v="14">兩週內</button><button data-v="30">一個月內</button><button data-v="60">兩個月內</button>
+      </div>
+    </div>
+    <div class="banner warning" style="margin:0 0 .8rem;">
+      LINE 自動傳送：<b>尚未開啟</b>。這一頁只列出名單和訊息草稿，不會傳任何訊息給客人。
+      請先看看名單和訊息內容，確定要開再告訴系統管理者。
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>預定日</th><th>客戶</th><th>項目</th><th>機型／交機日</th><th>LINE</th><th>已有預約</th><th>操作</th>
+        </tr></thead>
+        <tbody id="cr-body"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:.8rem;">
+      規則：助聽器的購買或租借（交易沒選商品的也列入）交機後 14 天適應回診、3 個月第一次保養、之後每 6 個月定期保養；保固到期前 30 天提醒。
+      列出未來的和過期 14 天內的。已經有同類回訪提醒（前後 45 天）的不再列出。<br>
+      按「加到行事曆」會建一筆回訪提醒，行事曆和看板都看得到；打過電話或客人回來後，在行事曆把那筆標成完成。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/care_reminders.js?v={{ v }}"></script>{% endblock %}

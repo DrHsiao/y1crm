@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block title %}粉專訊息 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── Facebook 粉專訊息（Messenger 私訊＋貼文留言；可直接回覆）──────── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <h3 style="flex:1;">粉專訊息<span class="lh" id="fc-count"></span></h3>
+      <span id="fc-state" class="lc-state"></span>
+    </div>
+    <div class="section-row" style="margin-bottom:.8rem;">
+      <div class="seg" id="fc-filter" data-value="all">
+        <button data-v="all" class="on">全部</button><button data-v="pending">待回</button><button data-v="messenger">私訊</button><button data-v="comment">留言</button>
+      </div>
+    </div>
+
+    <div class="lc-wrap fc-wrap" id="lc-wrap">
+      <aside class="lc-list" id="lc-list"></aside>
+      <section class="lc-pane" id="lc-pane">
+        <div class="lc-head" id="lc-head"></div>
+        <div class="lc-thread" id="lc-thread">
+          <p class="hint" style="padding:1rem;">請從左側挑一則對話。</p>
+        </div>
+        <div class="fc-reply hidden" id="fc-reply">
+          <div class="fc-draft hidden" id="fc-draft"></div>
+          <textarea id="fc-text" rows="3" maxlength="2000" placeholder="輸入回覆…"></textarea>
+          <div class="fc-actions">
+            <span class="hint" id="fc-note"></span>
+            <button type="button" class="btn sm ghost" onclick="markHandled()">不用回</button>
+            <button type="button" class="btn sm" id="fc-send" onclick="sendReply()">送出</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <p class="hint" style="margin-top:.8rem;">
+      粉專的 Messenger 私訊和貼文留言都會進到這裡（每 20 秒自動更新），<b>可以直接在這裡回覆</b>，不收費。<br>
+      Messenger 只能在客人最後一則訊息後 24 小時內回覆；公開留言的 AI 建議一定要看過再送，所有人都看得到。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/fb_chat.js?v={{ v }}"></script>{% endblock %}

@@ -551,6 +551,27 @@
     .lc-head-state { width: 100%; margin-left: 0; }
   }
 
+  /* ── 粉專訊息（/fb-chat）：沿用 LINE 客服的版面，多一個回覆框 ── */
+  .lc-wrap.fc-wrap { height: min(74vh, 40rem); }
+  .lc-ava:not(:has(img)) { font-size: 1.1rem; }
+  .fc-reply { flex: none; display: flex; flex-direction: column; gap: .4rem; padding: .6rem .8rem;
+              border-top: 1px solid var(--line); background: var(--card); }
+  .fc-reply textarea { width: 100%; resize: vertical; min-height: 3.2rem; }
+  .fc-actions { display: flex; align-items: center; gap: .5rem; }
+  .fc-actions .hint { flex: 1; }
+  .fc-draft { display: flex; flex-direction: column; gap: .25rem; padding: .45rem .6rem;
+              border: 1px dashed var(--brand); border-radius: 6px; background: var(--brand-soft); }
+  .fc-draft-btns { display: flex; gap: .4rem; }
+  .fc-tags { display: flex; gap: .3rem; margin-top: .15rem; }
+  #fc-filter button { padding: .45rem .9rem; white-space: nowrap; }
+  .fc-wrap .btn.outline, .fb-share .btn.outline { background: transparent; color: var(--brand); }
+  .fc-wrap .btn.ghost, .fb-share .btn.ghost { background: transparent; border-color: var(--line); color: var(--text); }
+  .fc-wrap .btn.outline:hover, .fc-wrap .btn.ghost:hover,
+  .fb-share .btn.outline:hover, .fb-share .btn.ghost:hover { background: var(--brand-soft); }
+  @media (max-width: 760px) {
+    .lc-wrap.fc-wrap { height: min(80vh, 40rem); }
+  }
+
   /* ── 聽檢輔助（/hearing）：右耳紅、左耳藍為聽力圖慣例，暗色調亮以維持對比 ── */
   :root { --ht-r: #d32f2f; --ht-l: #1565c0; }
   @media (prefers-color-scheme: dark) {
@@ -665,7 +686,16 @@
   .wa-cover-img { width: 100%; max-height: 14rem; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
   .wa-check { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
   .wa-check input { width: 1.2rem; height: 1.2rem; }
+  .cr-msg { white-space: pre-wrap; font-family: inherit; font-size: .92rem; background: var(--bg, #f6f6f6); border: 1px solid var(--line); border-radius: 6px; padding: .6rem .8rem; margin: .3rem 0 0; max-width: 40rem; }
+  .wa-checks { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; padding: .3rem 0; }
+  .wa-checks label { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; cursor: pointer; }
+  .wa-checks input { width: 1.15rem; height: 1.15rem; }
   .wa-adv summary { cursor: pointer; color: var(--muted); margin-bottom: .4rem; }
+  /* 評論轉貼的用語檢查：價格（不能發佈）紅、療效／誇大用語（要確認）黃 */
+  .wa-flags { list-style: none; padding: 0; margin: .4rem 0; display: grid; gap: .3rem; }
+  .wa-flags li { padding: .35rem .6rem; border-radius: 6px; font-size: .95rem; }
+  .wa-flags li.price { background: var(--danger-bg); color: var(--danger); }
+  .wa-flags li.claim { background: var(--warn-bg); color: var(--warn-text); }
   .wa-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
   @media (max-width: 900px) { .wa-grid { grid-template-columns: 1fr; } }
   /* 外框／淡色按鈕：其他頁也用到 .btn.outline／.btn.ghost 但沒有定義（顯示成實心），這裡先只套在官網管理頁 */

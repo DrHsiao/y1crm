@@ -63,10 +63,21 @@ _DEFAULTS: dict = {
         # 客戶傳來的圖片：走「好卡」config.OCR（11434, qwen3-vl），不是上面的 573
         "vision_timeout_secs": 60,
     },
+    # Facebook 粉專（api/fb_page.py）：page_token 未設＝開發模式，發文與回覆只記 log 不打 Graph API
+    "facebook": {
+        "page_id": "",
+        "app_id": "",
+        "app_secret": "",       # 驗 webhook 簽章（X-Hub-Signature-256）＋呼叫 Graph API 的 appsecret_proof
+        "page_token": "",       # 系統使用者權杖（不會過期）
+        "verify_token": "",     # webhook 訂閱驗證碼：自己產生的亂碼，同一串貼到 Meta 後台
+        "graph_version": "v24.0",
+        "ai_reply": "draft",    # Messenger 私訊：off＝AI 不動作／draft＝只產草稿／auto＝直接回；公開留言一律只產草稿
+    },
     "server": {"host": "0.0.0.0", "port": 8004},
     # 店面狀態看板（免登入電視牆）：key 未設＝看板停用；URL 帶 ?k=<key> 存取
     "board": {"key": ""},
-    # 官網管理（y1web）：圖片存到官網的 media/uploads；site_url 給「在官網查看」連結用
+    # 官網管理（y1web）：圖片存到官網的 media/uploads。site_url 只是備用：
+    # 官網網址的正式值在「官網管理 → 官網網址」（y1web.web_settings k=site），換網域改那裡一次就好
     "web": {"media_dir": "/home/john/y1web/media/uploads", "site_url": "http://192.168.1.88:8006"},
 }
 
@@ -116,6 +127,7 @@ LINE: dict = _CFG["line"]
 BOARD: dict = _CFG["board"]
 AI: dict = _CFG["ai"]
 WEB: dict = _CFG["web"]
+FACEBOOK: dict = _CFG["facebook"]
 
 _STORAGE_KINDS = ("todo_attachments", "customer_photos", "form_images", "staff_photos",
                   "product_attachments", "line_media", "hearing_files")

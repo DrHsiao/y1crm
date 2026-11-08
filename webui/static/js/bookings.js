@@ -22,9 +22,17 @@ function sourceTag(b) {
   return b.source === "web" ? `<span class="bk-tag web">官網</span>` : `<span class="bk-tag">LINE</span>`;
 }
 
+// 官網「幫家人預約」：備註第一行是「【幫家人預約】來店者：…」（y1web app/booking.py FAMILY_TAG）
+const FAMILY_TAG = "【幫家人預約】來店者：";
 function needCell(b) {
   const addr = b.kind === "home" && b.address ? `<div>📍 ${esc(b.address)}</div>` : "";
-  return addr + (esc(b.note ?? "") || (addr ? "" : "—"));
+  let note = b.note ?? "", fam = "";
+  if (note.startsWith(FAMILY_TAG)) {
+    const nl = note.indexOf("\n");
+    fam = `<div><span class="bk-tag web">幫家人</span> 來店：${esc(nl < 0 ? note.slice(FAMILY_TAG.length) : note.slice(FAMILY_TAG.length, nl))}</div>`;
+    note = nl < 0 ? "" : note.slice(nl + 1);
+  }
+  return fam + addr + (esc(note) || (addr || fam ? "" : "—"));
 }
 
 function whoCell(b) {
