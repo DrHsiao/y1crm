@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block title %}粉專貼文 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 粉專貼文（本機 AI 每天寫草稿，管理者勾選才發到粉專）──────── -->
+  <div class="card fp-wrap">
+    <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap;">
+      <h3 style="flex:1; min-width:10rem;">粉專貼文<span class="lh" id="fp-count"></span></h3>
+      <span id="fp-state" class="lc-state"></span>
+    </div>
+
+    <p class="banner info fp-note" id="fp-auto-note"></p>
+
+    <div class="fp-new">
+      <label for="fp-cat">多寫一則</label>
+      <select id="fp-cat"></select>
+      <input id="fp-brief" maxlength="500" placeholder="自己出題（可留空）：例如「冬天戴毛帽，助聽器要注意什麼」">
+      <button type="button" class="btn sm" id="fp-write" onclick="fpWrite()">寫一則</button>
+    </div>
+    <p class="hint" id="fp-new-hint" style="margin:.3rem 0 1rem;">留空就由 AI 從這個類別挑題目；本機 AI 寫一則約半分鐘。</p>
+
+    <div id="fp-list"></div>
+
+    <div class="fp-bar">
+      <span id="fp-picked" class="hint">還沒勾選</span>
+      <button type="button" class="btn" id="fp-publish" onclick="fpPublish()" disabled>發佈勾選的</button>
+    </div>
+
+    <details class="fp-recent">
+      <summary>最近發佈的</summary>
+      <div id="fp-recent"></div>
+    </details>
+
+    <p class="hint" style="margin-top:.8rem;">
+      本機 AI 每天開店前寫好幾則草稿（時事新聞、保養、聽力保健、家人溝通、互動提問、節日、官網文章輪流），預設勾選。
+      可以直接改字，改完會自動存；要馬上發就按「發佈勾選的」。<br>
+      <b>同步到聽力專欄</b>：發到粉專的同時在官網「聽力專欄」放一篇（不含官網宣傳和 hashtag），
+      官網標題、分類、搜尋關鍵字、摘要由 AI 先擬好，可以展開修改。互動提問、節日、官網文章介紹預設不同步。<br>
+      AI 會寫錯，請一定看過：提到價格、還有【】待填的不能發；療效、促銷、品牌、「耳機」會提醒，有提醒的不會自動發。
+      新聞類附原文連結，內容只依新聞的標題和摘要，細節請點原文確認。<br>
+      <b>配圖</b>：每則寫好後從圖庫挑一張和內容相關的真實照片，有圖的發成「相片＋文字」貼文，
+      附的連結會寫進文字裡。不對題按「換一張」，不想要圖按「不要圖」。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/fb_posts.js?v={{ v }}"></script>{% endblock %}

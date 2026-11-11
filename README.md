@@ -41,7 +41,7 @@
 | `webui/` | `templates/` 各頁樣板（繼承 `layout.html`）、`static/` 程式與樣式 |
 | `config.py` | 設定三層覆寫：內建預設 < `config.toml` < 環境變數 `Y1CRM_<區段>_<鍵>` |
 | `config.example.toml` | 設定樣板（真正的 `config.toml` 含機密，不進版控） |
-| `scripts/` | `seed_menus.py` 導覽選單種子、`dm_import.py` 型錄匯入、`line_richmenu_setup.py` LINE 圖文選單 |
+| `scripts/` | `seed_menus.py` 導覽選單種子、`dm_import.py` 型錄匯入、`line_richmenu_setup.py` LINE 圖文選單、`fb_setup.py` 粉專訂閱、`youtube_auth.py` YouTube 頻道授權 |
 | [`scripts/ops/`](scripts/ops/README.md) | 主機健康檢查與每日摘要（Telegram 告警，只在狀態改變時推） |
 | [`scripts/backup/`](scripts/backup/README.md) | 每日備份（資料與 MySQL → 另一顆實體碟） |
 | [`scripts/gpu/`](scripts/gpu/README.md) | GPU 溫控與 ollama 熱機／看門狗 |
@@ -54,6 +54,10 @@
 cp config.example.toml config.toml        # 填資料庫、儲存路徑、LINE、AI 等設定
 python3 -m venv venv
 ./venv/bin/pip install fastapi uvicorn jinja2 pymysql DBUtils bcrypt pillow   # 型錄匯入另需 pymupdf
+./venv/bin/pip install edge-tts==7.3.1 imageio-ffmpeg   # 文章短影音（api/article_video.py）另需
+./venv/bin/pip install opencc-python-reimplemented==0.1.7   # 聽力專欄「從網址翻譯文章」（api/article_import.py）簡轉繁另需
+# 動態影片（api/motion_video.py）：畫面用 config.toml [imagegen].python 那個有 torch 的環境跑，
+# 深度模型 depth-anything/Depth-Anything-V2-Small-hf 要先下載到 [imagegen].hf_home
 ./venv/bin/python run.py                  # http://<主機>:8004
 ```
 

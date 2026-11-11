@@ -1,12 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}官網管理 — y1crm{% endblock %}
 {% block content %}
-  <!-- ── 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手；選單權限 web）── -->
+  <!-- ── 官網管理（y1web 官網的關於我們／聽力專欄／好評分享／使用小教室／補助小幫手；選單權限 web）── -->
   <div class="card" id="wa-list-card">
     <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
       <h3 style="flex:1; min-width:10rem;">官網管理<span class="lh" id="wa-count"></span></h3>
       <div class="seg" id="wa-kind" data-value="about">
-        <button data-v="about">關於韻譯</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button><button data-v="care">使用小教室</button><button data-v="subsidy">補助小幫手</button>
+        <button data-v="about">關於我們</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button><button data-v="care">使用小教室</button><button data-v="subsidy">補助小幫手</button>
       </div>
       <button type="button" class="btn sm" onclick="waEdit(null)">＋ 新增</button>
       <a class="btn sm outline" id="wa-site" target="_blank" rel="noopener">在官網查看 ↗</a>
@@ -15,6 +15,13 @@
     <p class="hint" style="margin:-.3rem 0 .8rem;">官網網址：<b id="wa-site-url"></b>
       <button type="button" class="btn sm ghost" onclick="waSiteUrl()">修改</button>
       <span class="lh">換網域時改這裡一次就好：分享連結、QR 貼紙、sitemap、保養提醒訊息都會跟著換。</span></p>
+    <p class="hint hidden wa-share-tools" id="wa-share-tools">
+      <button type="button" class="btn sm wa-share-only" onclick="waBatch()">📋 一次貼上多則 Google 評論</button>
+      <button type="button" class="btn sm outline wa-share-only" onclick="waImportFb()">📘 匯入粉專推薦</button>
+      <button type="button" class="btn sm wa-article-only hidden" onclick="waTranslate()">🌐 從網址翻譯文章</button>
+      <button type="button" class="btn sm outline hidden" id="wa-art-btn" onclick="waArt(null, false)"></button>
+      <span id="wa-art-state" class="lh"></span>
+    </p>
     <p class="hint hidden" style="margin:-.3rem 0 .8rem;" id="wa-links">「看全部評論」連結：<span id="wa-links-v"></span>
       <button type="button" class="btn sm ghost" onclick="waShareLinks()">修改</button>
       <span class="lh">好評分享頁最下面「到 Google 地圖看全部評論」的連結；點開評論時視窗裡的 Google 地圖。</span></p>
@@ -108,6 +115,20 @@
           <label>影片連結<span class="lh">選填：原廠或門市自己拍的教學影片（官網用新分頁開啟）</span></label>
           <input id="wa-video" maxlength="300" placeholder="https://" autocapitalize="none" spellcheck="false">
         </div>
+        <div class="modal-field wa-only" data-kinds="article care">
+          <label>搜尋關鍵字<span class="lh">5～8 個客人會在 Google 搜尋的詞，用逗號或頓號分開，例如 助聽器保養、台北助聽器</span></label>
+          <input id="wa-keywords" maxlength="300" placeholder="選填">
+          <div class="field-info">放進網頁給搜尋引擎看，專欄文章最下面也會列出來。不能有價格、療效或「最好」這類用語。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="article">
+          <label>出處<span class="lh">翻譯或轉載別人的文章才填：官網文章上方會寫「本文翻譯整理自 出處〈原文標題〉」並連到原文</span></label>
+          <input id="wa-src-url" maxlength="300" placeholder="原文網址 https://…" autocapitalize="none" spellcheck="false">
+          <div class="modal-row" style="margin-top:.4rem;">
+            <div class="modal-field"><input id="wa-src-site" maxlength="60" placeholder="出處名稱，例如 ReSound"></div>
+            <div class="modal-field"><input id="wa-src-title" maxlength="200" placeholder="原文標題"></div>
+            <div class="modal-field"><select id="wa-src-mode"><option value="translate">翻譯整理</option><option value="repost">轉載</option></select></div>
+          </div>
+        </div>
         <div class="modal-field wa-only" data-kinds="about article share care subsidy"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
           <textarea id="wa-summary" rows="2" maxlength="300"></textarea></div>
         <div class="modal-field wa-only" data-kinds="about article share care subsidy">
@@ -155,6 +176,9 @@
           <button type="button" class="btn" onclick="waSave()">儲存</button>
           <button type="button" class="btn ghost" onclick="waClose()">取消</button>
           <button type="button" class="btn outline hidden" id="wa-fb" onclick="waShareFb()">📘 分享到粉專</button>
+          <button type="button" class="btn outline hidden" id="wa-mkvid" onclick="waMakeVideo()">🎬 做影片</button>
+          <button type="button" class="btn outline hidden" id="wa-vfb" onclick="waVideoFb()">📘 影片發粉專</button>
+          <button type="button" class="btn outline hidden" id="wa-yt" onclick="waYouTube()">▶ 影片送 YouTube</button>
           <button type="button" class="btn outline hidden" id="wa-del" onclick="waDelete()">刪除</button>
         </div>
         <p class="hint" id="wa-meta"></p>

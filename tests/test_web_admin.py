@@ -5,6 +5,7 @@
 import io
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
@@ -73,7 +74,7 @@ class CleanPost(unittest.TestCase):
                                    "video": "https://example.com/v"}, NOW)
         self.assertEqual(c["extra"]["types"], ["battery", "rechargeable"])   # 只留認得的，順序固定
         self.assertIsNone(c["publish_at"])                                    # 照排序，不看發佈日
-        self.assertEqual(wa.clean_post("care", {"title": "x"}, NOW)["extra"], {"types": [], "video": ""})
+        self.assertEqual(wa.clean_post("care", {"title": "x"}, NOW)["extra"], {"types": [], "video": "", "keywords": []})
         for bad in ("javascript:alert(1)", "www.example.com", "https://a b"):
             with self.assertRaises(wa.Invalid):
                 wa.clean_post("care", {"title": "x", "video": bad}, NOW)
@@ -301,6 +302,159 @@ class Images(unittest.TestCase):
             wa.remove_if_unused(cur, d, name)                           # 原圖、卡片圖一起刪
             self.assertFalse((d / name).exists() or wa.thumb_path(d, name).exists())
         self.assertIsNone(wa.thumb_path(Path("/tmp"), "../x.webp"))
+
+
+
+class Keywords(unittest.TestCase):
+    def test_clean(self):
+        self.assertEqual(wa.clean_keywords("助聽器保養, #耳鳴、 台北  助聽器\n耳鳴"), ["助聽器保養", "耳鳴", "台北 助聽器"])
+        self.assertEqual(wa.clean_keywords(["a", "", "a"]), ["a"])
+        self.assertEqual(wa.clean_keywords(None), [])
+        for bad in ("特價", "最好的助聽器", "x" * 21, "、".join(str(i) for i in range(11))):
+            with self.assertRaises(wa.Invalid):
+                wa.clean_keywords(bad)
+
+    def test_in_post(self):
+        a = wa.clean_post("article", {"title": "t", "category": "聽力保健", "keywords": "耳鳴、保養"})
+        self.assertEqual(a["extra"]["keywords"], ["耳鳴", "保養"])
+        c = wa.clean_post("care", {"title": "t", "keywords": ""})
+        self.assertEqual(c["extra"]["keywords"], [])
+
+
+class BatchReviews(unittest.TestCase):
+    TODAY = __import__("datetime").date(2026, 11, 8)
+    PASTE = """評論
+5.0
+151 則評論
+排序
+王小明
+在地嚮導 · 52 則評論 · 120 張相片
+3 週前 新
+店員很有耐心。
+讚
+分享
+業主回應
+2 週前
+謝謝您！
+陳美麗
+3 則評論
+2 個月前
+環境乾淨。
+讚
+林大同
+1 則評論
+1 年前
+服務很好"""
+
+    def test_split(self):
+        got = [wa.parse_review(c, self.TODAY) for c in wa.split_reviews(self.PASTE, self.TODAY)]
+        real = [(d["author"], d["posted"], d["original"], d["owner_reply"]) for d in got if d["posted"]]
+        self.assertEqual(real, [("王小明", "2026-10-18", "店員很有耐心。", "謝謝您！"),
+                                ("陳美麗", "2026-09-08", "環境乾淨。", ""),
+                                ("林大同", "2025-11-08", "服務很好", "")])
+
+    def test_date_with_badge(self):
+        self.assertEqual(wa.review_date("3 週前 新", self.TODAY).isoformat(), "2026-10-18")
+        self.assertEqual(wa.review_date("2 個月前・在 Google 上", self.TODAY).isoformat(), "2026-09-08")
+        self.assertIsNone(wa.review_date("3 週前我來過", self.TODAY))
+
+    def test_batch_marks_duplicates(self):
+        class Cur:
+            def __init__(self):
+                self.q = None
+            def execute(self, sql, args=()):
+                self.q = args
+            def fetchone(self):
+                return {"id": 99} if self.q and self.q[0] == __import__("hashlib").sha256("環境乾淨。".encode()).hexdigest()[:16] else None
+        items = wa.batch_reviews(Cur(), self.PASTE, self.TODAY)
+        self.assertEqual([x["person"] for x in items], ["王**", "陳**", "林**"])
+        self.assertEqual([x["duplicate"] for x in items], [None, 99, None])
+        self.assertEqual({x["rating"] for x in items}, {5})
+        with self.assertRaises(wa.Invalid):
+            wa.batch_reviews(Cur(), "x" * (wa.BATCH_MAX + 1), self.TODAY)
+
+    def test_create_unique_slugs(self):
+        saved = []
+        with mock.patch.object(wa, "save_post", side_effect=lambda cur, clean, actor: saved.append(clean) or len(saved)):
+            r = wa.create_share_drafts(None, [{"author": "王小明", "original": "很好"}, {"author": "陳美麗", "original": "很棒"},
+                                              {"author": "", "original": ""}], "john", "")
+        self.assertEqual(r["created"], [1, 2])
+        self.assertEqual(len(r["skipped"]), 1)                                  # 沒有原文的跳過
+        self.assertEqual(len({c["slug"] for c in saved}), 2)
+        self.assertTrue(all(c["status"] == "draft" and not c["extra"]["consent"] for c in saved))
+        self.assertEqual([c["extra"]["person"] for c in saved], ["王**", "陳**"])
+
+    def test_create_keeps_review_id_photos_year(self):
+        saved = []
+        with mock.patch.object(wa, "save_post", side_effect=lambda cur, clean, actor: saved.append(clean) or len(saved)):
+            r = wa.create_share_drafts(None, [
+                {"author": "王小明", "original": "很好", "posted": "2025-11-08", "posted_prec": "year",
+                 "review_id": "ChZDSUhNMG9nS0VJQ0FnSUR0ZXN0", "photos": 2},
+                {"author": "陳美麗", "original": "很棒", "review_id": "壞掉的代號", "photos": "x"}], "john", "")
+        self.assertEqual(r["with_photos"], [1])
+        x = saved[0]["extra"]
+        self.assertEqual((x["review_id"], x["review_photos"], x["posted_prec"]), ("ChZDSUhNMG9nS0VJQ0FnSUR0ZXN0", 2, "year"))
+        self.assertFalse({"review_id", "review_photos", "posted_prec"} & set(saved[1]["extra"]))   # 格式不對、沒日期的不存
+
+
+# 照 Google 地圖 2026-11 評論區的結構做的假資料（人名、內容都是編的）
+REVIEW_HTML = """<div class="m6QErb" aria-label="測試門市">
+<div class="jftiEf fontBodyMedium " aria-label="王小明" data-review-id="ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0MQ">
+ <div data-review-id="ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0MQ">
+  <button class="WEBjve" data-review-id="ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0MQ" aria-label="王小明的相片"><img class="NBa7we"></button>
+  <button class="al6Kxe"><div class="d4r55 fontTitleMedium">王小明</div><div class="RfnDt ">在地嚮導・52 則評論</div></button>
+  <div class="DU9Pgb"><span class="kvMYJc" role="img" aria-label="5 顆星"><span class="hCCjke"></span></span>
+   <span class="rsqaWe">1 年前</span></div>
+  <div class="MyEned"><span class="wiI7pd">店員很有耐心&amp;細心。<br>下次還會再來</span></div>
+  <div class="KtCyie"><button class="Tya61d" style="background-image: url(&quot;https://x.example/a&quot;);"></button>
+   <button class="Tya61d" style="background-image: url(&quot;https://x.example/b&quot;);"></button></div>
+  <span class="pkWtMe">1</span><span class="Hzvxle">按讚</span>
+  <div class="CDe7pd"><span class="fontTitleSmall">業主回應</span><span class="DZSIDd">1 年前</span>
+   <div class="wiI7pd">謝謝您的支持！</div></div>
+ </div>
+</div>
+<div class="jftiEf fontBodyMedium " aria-label="陳美麗" data-review-id="ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0Mg">
+  <button class="al6Kxe"><div class="d4r55">陳美麗</div><div class="RfnDt ">3 則評論</div></button>
+  <span class="kvMYJc" role="img" aria-label="4 顆星"></span><span class="rsqaWe">上次編輯：3 週前</span>
+  <div class="MyEned"><span class="wiI7pd">環境乾淨?</span></div>
+</div>
+<div class="jftiEf" aria-label="林大同" data-review-id="ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0Mw">
+  <div class="d4r55">林大同</div><span class="kvMYJc" aria-label="5 顆星"></span><span class="rsqaWe">2 個月前</span>
+</div></div>"""
+
+
+class ReviewHtml(unittest.TestCase):
+    TODAY = BatchReviews.TODAY
+
+    def test_parse(self):
+        self.assertTrue(wa.is_review_html(REVIEW_HTML))
+        self.assertFalse(wa.is_review_html(BatchReviews.PASTE))
+        got = wa.reviews_from_html(REVIEW_HTML, self.TODAY)
+        self.assertEqual([(d["author"], d["rating"], d["posted"], d["posted_prec"]) for d in got],
+                         [("王小明", 5, "2025-11-08", "year"), ("陳美麗", 4, "2026-10-18", ""), ("林大同", 5, "2026-09-08", "")])
+        a = got[0]
+        self.assertEqual(a["original"], "店員很有耐心&細心。\n下次還會再來")       # 業主回應、按讚數不混進原文
+        self.assertEqual(a["owner_reply"], "謝謝您的支持！")
+        self.assertEqual((a["photos"], a["review_id"]), (2, "ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0MQ"))
+        self.assertTrue(any("「?」" in w for w in got[1]["warnings"]))          # Big5 存檔掉字的提醒
+        self.assertEqual(got[2]["original"], "")                               # 只有星星
+
+    def test_batch_uses_html_and_review_id(self):
+        class Cur:
+            def execute(self, sql, args=()):
+                self.q = args
+            def fetchone(self):                                                 # 代號相同＝轉貼過（原文掉字也認得）
+                return {"id": 120} if self.q[1] == "ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0Mg" else None
+        items = wa.batch_reviews(Cur(), REVIEW_HTML, self.TODAY)
+        self.assertEqual([(x["person"], x["duplicate"], x["photos"]) for x in items], [("王**", None, 2), ("陳**", 120, 0)])
+        self.assertEqual(items[0]["review_id"], "ChdDSUhNMG9nS0VJQ0FnSUN0ZXN0MQ")
+
+    def test_decode(self):
+        self.assertEqual(wa.decode_paste("評論".encode("utf-8")), "評論")
+        self.assertEqual(wa.decode_paste("\ufeff評論".encode("utf-8")), "評論")
+        self.assertEqual(wa.decode_paste("評論".encode("utf-16")), "評論")
+        self.assertEqual(wa.decode_paste("睿聲助聽器".encode("cp950")), "睿聲助聽器")    # 記事本存的 ANSI
+        self.assertEqual(wa.review_date("上次編輯：1 年前", self.TODAY).isoformat(), "2025-11-08")
 
 
 if __name__ == "__main__":

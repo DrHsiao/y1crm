@@ -1,5 +1,5 @@
 """
-web_admin.py — 「官網管理」：編輯官網（y1web，port 8006）的關於韻譯、聽力專欄、好評分享、使用小教室、補助小幫手。
+web_admin.py — 「官網管理」：編輯官網（y1web，port 8006）的關於我們、聽力專欄、好評分享、使用小教室、補助小幫手。
 
 資料在 y1web 資料庫的 web_posts。y1crm 用自己的資料庫連線寫入；官網那邊的資料庫帳號只能讀。
 官網有 60 秒快取，存檔後最多一分鐘就會出現在官網上。
@@ -17,6 +17,7 @@ import io
 import json
 import re
 from datetime import date, datetime, timedelta
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -25,7 +26,7 @@ from PIL import Image, ImageOps
 
 from api import wording
 
-KINDS = {"about": "關於韻譯", "article": "聽力專欄", "share": "好評分享", "care": "使用小教室", "subsidy": "補助小幫手"}
+KINDS = {"about": "關於我們", "article": "聽力專欄", "share": "好評分享", "care": "使用小教室", "subsidy": "補助小幫手"}
 # 下面三份和官網 y1web app/content.py 的 COLUMN_CATEGORIES／CARE_TYPES／SUBSIDY_CONDITIONS 相同，要一起改
 COLUMN_CATEGORIES = ["助聽器知識", "聽力保健", "聽能復健", "補助申請", "生活樂活"]
 # 使用小教室「適用的助聽器」：都不勾＝每一種都適用（官網產品頁依外型／電源帶出相關教學）
@@ -49,7 +50,7 @@ SHARE_PLATFORMS = {
 }
 LIMITS = {"title": 120, "summary": 300, "body_md": 50000, "slug": 80, "en": 60,
           "person": 40, "model": 60, "hearing": 40, "video": 300, "link": 300, "agency": 60,
-          "url": 300, "author": 60, "original": 5000}
+          "url": 300, "author": 60, "original": 5000, "source_url": 300, "source_title": 200, "source_site": 60}
 PASTE_MAX = 20000
 URL_RE = re.compile(r"^https?://[^\s<>\"']+$")
 # 官網對外網址：只要「協定＋網域＋（port）」，不帶路徑（官網 y1web app/content.py SITE_URL_RE 同規則）
@@ -64,6 +65,26 @@ IMAGE_MAX_PIXELS = 50_000_000          # 超過就拒收（防解壓縮炸彈）
 THUMB_DIR = "c"
 THUMB_W, THUMB_H = 720, 480
 TABLE = "y1web.web_posts"
+# 示意插圖（api/review_art.py）的標記：跟著圖片走；店員自己上傳或移除圖片就清掉
+# 圖片的來源（John 2026-11-08「要標註圖片是原圖還是 AI 生成，以後才能批次替換」）：
+#   cover_src＝"ai"（本機 AI 畫的）或 "upload"（原圖：店員上傳的照片）；AI 的另外記 cover_model（模型／畫風版本）、
+#   cover_at（什麼時候畫的）、cover_prompt、cover_people。cover_ai 是舊的旗標，官網和程式還在用，和 cover_src="ai" 同義。
+#   批次重畫：scripts/illustrate/image_sources.py
+#   "stock"＝圖庫照片（「助聽器知識」類別，api/stock_art.py），出處記在 cover_credit。
+#   "source"＝翻譯文章帶回來的原文圖片（api/article_import.py），cover_credit＝{source: 出處名稱, url: 原文網址}，官網標「圖片來源」。
+COVER_KEYS = ("cover_ai", "cover_src", "cover_model", "cover_at", "cover_prompt", "cover_people", "cover_credit")
+COVER_SRC = {"ai": "AI 生成", "upload": "原圖", "stock": "圖庫照片", "source": "原文圖片"}
+# 表單上沒有、存檔時要從舊資料帶過來的 extra：AI 插圖標記、Google 評論代號、評論附了幾張照片、文章影片
+PRESERVE_KEYS = COVER_KEYS + ("review_id", "review_photos", "video", "video_draft")   # video：做好的影片；video_draft：CRM「做影片」的分鏡
+
+
+def carried_extra(old_x: Dict[str, Any]) -> Dict[str, Any]:
+    """存檔時要從舊資料帶過來的 extra。video 只帶程式做的短影音（dict，含 YouTube 連結）：
+    使用小教室的「影片連結」也叫 video（字串），那是表單上的欄位，要用表單送來的值。"""
+    return {k: old_x[k] for k in PRESERVE_KEYS if k in old_x and (k != "video" or isinstance(old_x[k], dict))}
+CLEAR_COVER_KEYS = ("JSON_REMOVE(COALESCE(extra, JSON_OBJECT()), '$.cover_ai', '$.cover_src', '$.cover_model', "
+                    "'$.cover_at', '$.cover_prompt', '$.cover_people', '$.cover_credit')")
+UPLOAD_COVER_KEYS = f"JSON_SET({CLEAR_COVER_KEYS}, '$.cover_src', 'upload', '$.cover_at', %s)"   # 店員上傳＝原圖
 
 
 class Invalid(ValueError):
@@ -94,6 +115,54 @@ def _picks(body: Dict[str, Any], key: str, allowed: Dict[str, str]) -> List[str]
     if not isinstance(got, list):
         raise Invalid("勾選欄位格式不正確。")
     return [k for k in allowed if k in got]
+
+
+# 搜尋關鍵字（SEO）：聽力專欄、使用小教室可以填；官網放進網頁標頭（meta keywords、結構化資料），
+# 專欄文章最下面也列出來（點了用專欄搜尋）。粉專貼文同步到專欄時由本機 AI 先擬好（api/fb_drafts.py）。
+KEYWORDS_MAX = 10
+KEYWORD_LEN = 20
+_KW_SPLIT_RE = re.compile(r"[,，、;；\n]+")
+
+
+def clean_keywords(v: Any) -> List[str]:
+    """逗號、頓號或換行分開 → 去掉 #、去重。價格和療效、最高級用語不收（官網的用語規定）。"""
+    items = v if isinstance(v, list) else _KW_SPLIT_RE.split(str(v or ""))
+    out: List[str] = []
+    for k in items:
+        k = re.sub(r"\s+", " ", str(k)).strip().lstrip("#＃").strip()
+        if not k or k in out:
+            continue
+        if len(k) > KEYWORD_LEN:
+            raise Invalid(f"關鍵字「{k[:KEYWORD_LEN]}…」太長，每個請在 {KEYWORD_LEN} 字以內。")
+        if wording.price_word(k):
+            raise Invalid(f"關鍵字不能有價格字眼（{k}）。")
+        if wording.claim_words(k):
+            raise Invalid(f"關鍵字不要用療效或最高級用語（{k}）。")
+        out.append(k)
+    if len(out) > KEYWORDS_MAX:
+        raise Invalid(f"關鍵字最多 {KEYWORDS_MAX} 個。")
+    return out
+
+
+# 翻譯／轉載的專欄文章：出處（John 2026-11-11「翻譯轉貼，給出處就好」）。官網文章上方顯示「本文翻譯整理自 出處〈原文標題〉」
+SOURCE_MODES = {"translate": "翻譯整理", "repost": "轉載"}
+
+
+def clean_source(body: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """原文網址、原文標題、出處名稱、翻譯或轉載 → extra.source；都沒填回 None。"""
+    url = _url(body, "source_url", "原文網址")
+    title = _text(body, "source_title", False, "原文標題") or ""
+    site = _text(body, "source_site", False, "出處名稱") or ""
+    if not (url or title or site):
+        return None
+    if not url:
+        raise Invalid("有填出處的話，請貼原文網址。")
+    if not site:
+        site = re.sub(r"^(www|m)\.", "", (urlparse(url).hostname or "").lower())
+    mode = body.get("source_mode") or "translate"
+    if mode not in SOURCE_MODES:
+        raise Invalid("出處的方式不正確。")
+    return {"url": url, "title": title, "site": site, "mode": mode}
 
 
 def auto_slug(kind: str, now: Optional[datetime] = None) -> str:
@@ -145,11 +214,15 @@ def clean_post(kind: str, body: Dict[str, Any], now: Optional[datetime] = None) 
         if cat not in COLUMN_CATEGORIES:
             raise Invalid("請選擇專欄分類。")
         out["category"] = cat
-        extra: Dict[str, Any] = {}
+        extra: Dict[str, Any] = {"keywords": clean_keywords(body.get("keywords"))}
+        src = clean_source(body)
+        if src:
+            extra["source"] = src
     elif kind == "about":
         extra = {"en": _text(body, "en", False, "英文小標") or ""}
     elif kind == "care":
-        extra = {"types": _picks(body, "types", CARE_TYPES), "video": _url(body, "video", "影片連結")}
+        extra = {"types": _picks(body, "types", CARE_TYPES), "video": _url(body, "video", "影片連結"),
+                 "keywords": clean_keywords(body.get("keywords"))}
     elif kind == "subsidy":
         extra = {"when": _picks(body, "when", SUBSIDY_CONDITIONS),
                  "agency": _text(body, "agency", False, "受理單位") or "",
@@ -256,10 +329,13 @@ def suggest_excerpt(original: str) -> str:
 #   王小明 / 在地嚮導・52 則評論・120 張相片 / 3 週前 / 新 / 評論內容… / 讚 / 分享 / 業主回應 2 週前 / 回覆內容…
 #   星星是圖片，複製不到。介面上的字照 Google 2026-11 的版面寫，Google 改版時調這幾個規則。
 _ZH_NUM = {"一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-_REL_RE = re.compile(r"^(?:編輯時間[:：]?\s*|已編輯[:：]?\s*|edited\s+)?(?:"
+_REL_RE = re.compile(r"^(?:(?:上次)?編輯(?:時間)?[:：]?\s*|已編輯[:：]?\s*|edited\s+)?(?:"
                      r"(\d+|[一二兩三四五六七八九十]{1,3})\s*(分鐘|小時|天|日|週|周|星期|個月|月|年)前"
                      r"|(a|an|one|\d+)\s+(minute|hour|day|week|month|year)s?\s+ago"
-                     r"|(剛剛|昨天|上週|上星期|上個月|去年|just now|yesterday|last week|last month|last year))$", re.I)
+                     r"|(剛剛|昨天|上週|上星期|上個月|去年|just now|yesterday|last week|last month|last year))"
+                     r"(?:\s*[·・|]?\s*(?:新|new|在\s*google\s*上|on\s+google))?$", re.I)
+_YEAR_RE = re.compile(r"年前|去年|years?\s+ago|last\s+year", re.I)     # 「1 年前」只知道年，官網只顯示年
+REVIEW_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,100}$")
 _ABS_RE = re.compile(r"^(\d{4})\s*[年/.-]\s*(\d{1,2})\s*(?:[月/.-]\s*(\d{1,2})\s*日?)?$")
 _META_RE = re.compile(r"\d\s*則(評論|留言)|\d\s*張(相片|照片)|在地嚮導|local guide|\d\s*reviews?\b|\d\s*photos?\b", re.I)
 _STAR_RE = re.compile(r"^(?:([1-5])\s*(?:/\s*5|顆星|星|stars?)|(★{1,5})☆*)$", re.I)
@@ -343,8 +419,8 @@ def parse_review(text: str, today: Optional[date] = None) -> Dict[str, Any]:
     today = today or date.today()
     lines = [x.strip() for x in (text or "").replace("\r", "").split("\n")]
     lines = [x for x in lines if x]
-    out: Dict[str, Any] = {"author": "", "posted": "", "rating": None, "original": "", "owner_reply": "",
-                           "warnings": []}
+    out: Dict[str, Any] = {"author": "", "posted": "", "posted_prec": "", "rating": None, "original": "",
+                           "owner_reply": "", "warnings": []}
     if not lines:
         out["warnings"].append("沒有貼上內容。")
         return out
@@ -352,6 +428,7 @@ def parse_review(text: str, today: Optional[date] = None) -> Dict[str, Any]:
     t = next((i for i, x in enumerate(lines[:6]) if review_date(x, today)), None)
     if t is not None:
         out["posted"] = review_date(lines[t], today).isoformat()
+        out["posted_prec"] = "year" if _YEAR_RE.search(lines[t]) else ""
         start = t + 1
     else:
         meta = next((i for i, x in enumerate(lines[:4]) if _is_meta(x)), None)
@@ -419,6 +496,209 @@ def review_draft(text: str = "", original: str = "", today: Optional[date] = Non
     return d
 
 
+# ── 一次貼很多則（John 2026-11-08「把 Google 上的好評轉貼過來」）─────────────────
+#   Google 不准程式去抓評論（Places／Business Profile API 的條款也不能拿來轉貼，見 y1web docs/好評轉貼.md），
+#   所以一樣是人在 Google 地圖上複製；差別是可以把評論區整片複製下來，這裡切成一則一則，建成「草稿」。
+#   發佈仍然要店員問過評論者、勾「已取得當事人同意」。星星複製不到：預設 5 顆，請在 Google 地圖先按「評分最高」排序。
+BATCH_MAX = 3_000_000        # 整片評論區的 HTML（開發人員工具「複製 outerHTML」）150 則約 70 萬字
+BATCH_LIMIT = 200
+
+
+def split_reviews(text: str, today: Optional[date] = None) -> List[str]:
+    """整片複製的評論區 → 一則一則（每則從評論帳號那一行開始）。開頭的店名、總評分等雜訊會變成拆不出內容的一段。"""
+    today = today or date.today()
+    lines = [x.strip() for x in (text or "").replace("\r", "").split("\n")]
+    lines = [x for x in lines if x]
+    starts = [i for i in range(len(lines)) if _next_review(lines, i, today)
+              and not _is_meta(lines[i]) and not review_date(lines[i], today) and not _STAR_RE.match(lines[i])]
+    if not starts or starts[0] != 0:
+        starts = [0] + starts
+    ends = starts[1:] + [len(lines)]
+    return ["\n".join(lines[a:b]) for a, b in zip(starts, ends)]
+
+
+# 評論區的 HTML（John 2026-11-08 存成檔案的 re.txt）：每則評論是最外層帶 data-review-id 的元素，
+#   裡面：aria-label＝帳號、「5 顆星」、.rsqaWe 時間、.MyEned 評論文字、.CDe7pd 業主回應、.Tya61d 照片。
+#   class 名稱是 Google 編譯出來的，改版會變：找不到時改用結構（aria-label、時間格式）判斷。
+_VOID = {"img", "br", "input", "meta", "link", "hr", "source", "wbr", "area", "base", "col", "embed", "param", "track"}
+_HTML_STAR_RE = re.compile(r"([1-5])\s*(?:顆星|stars?)", re.I)
+
+
+class _Node:
+    __slots__ = ("tag", "attrs", "parent", "items")
+
+    def __init__(self, tag: str, attrs: Dict[str, str], parent: Optional["_Node"]):
+        self.tag, self.attrs, self.parent, self.items = tag, attrs, parent, []
+
+    def cls(self) -> List[str]:
+        return (self.attrs.get("class") or "").split()
+
+    def walk(self):
+        yield self
+        for x in self.items:
+            if isinstance(x, _Node):
+                yield from x.walk()
+
+    def text(self) -> str:
+        out = []
+        for x in self.items:
+            out.append(x if isinstance(x, str) else ("\n" if x.tag == "br" else x.text()))
+        return "".join(out)
+
+    def find(self, cls: str) -> List["_Node"]:
+        return [n for n in self.walk() if cls in n.cls()]
+
+
+class _DomBuilder(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = _Node("root", {}, None)
+        self.cur = self.root
+
+    def handle_starttag(self, tag, attrs):
+        n = _Node(tag, {k: v or "" for k, v in attrs}, self.cur)
+        self.cur.items.append(n)
+        if tag not in _VOID:
+            self.cur = n
+
+    def handle_endtag(self, tag):
+        c = self.cur
+        while c is not self.root and c.tag != tag:
+            c = c.parent
+        if c is not self.root:
+            self.cur = c.parent
+
+    def handle_data(self, data):
+        self.cur.items.append(data)
+
+
+def is_review_html(text: str) -> bool:
+    return (text or "").lstrip().startswith("<") and "data-review-id" in (text or "")
+
+
+def _lines(s: str) -> str:
+    return "\n".join(x.strip() for x in s.replace("\r", "").split("\n") if x.strip())
+
+
+def reviews_from_html(text: str, today: Optional[date] = None) -> List[Dict[str, Any]]:
+    """評論區 HTML → 和 parse_review 一樣的欄位，另外有 photos（評論附了幾張照片）。"""
+    today = today or date.today()
+    b = _DomBuilder()
+    b.feed(text)
+    out = []
+    for n in b.root.walk():
+        if "data-review-id" not in n.attrs:
+            continue
+        p = n.parent
+        while p is not None and "data-review-id" not in p.attrs:
+            p = p.parent
+        if p is not None:
+            continue                                  # 只要最外層那個（裡面的按鈕也帶 data-review-id）
+        reply_nodes = n.find("CDe7pd")
+        in_reply = {id(x) for r in reply_nodes for x in r.walk()}
+        rid = n.attrs["data-review-id"].strip()
+        d: Dict[str, Any] = {"author": "", "posted": "", "posted_prec": "", "rating": None, "original": "",
+                             "owner_reply": "", "warnings": [], "photos": 0,
+                             "review_id": rid if REVIEW_ID_RE.match(rid) else ""}
+        names = n.find("d4r55")
+        d["author"] = _lines(names[0].text() if names else n.attrs.get("aria-label", ""))[:LIMITS["person"] * 4]
+        for x in n.walk():
+            m = _HTML_STAR_RE.search(x.attrs.get("aria-label", ""))
+            if m:
+                d["rating"] = int(m.group(1))
+                break
+        dates = [x.text().strip() for x in n.find("rsqaWe")] or \
+                [s.strip() for x in n.walk() if id(x) not in in_reply for s in x.items if isinstance(s, str)]
+        for t in dates:
+            when = review_date(t, today)
+            if when:
+                d["posted"], d["posted_prec"] = when.isoformat(), "year" if _YEAR_RE.search(t) else ""
+                break
+        body = n.find("MyEned") or [x for x in n.find("wiI7pd") if id(x) not in in_reply][:1]
+        d["original"] = _lines(body[0].find("wiI7pd")[0].text() if body and body[0].find("wiI7pd")
+                               else (body[0].text() if body else ""))
+        if reply_nodes:
+            rt = reply_nodes[0].find("wiI7pd")
+            d["owner_reply"] = _lines(rt[0].text() if rt else reply_nodes[0].text())
+        d["photos"] = len(n.find("Tya61d")) or sum(1 for x in n.walk()
+                                                   if x.tag == "button" and "background-image" in x.attrs.get("style", ""))
+        all_text = n.text()
+        if any(_TRANSLATED.search(t) for t in all_text.split("\n")):
+            d["warnings"].append("這則有 Google 翻譯，請確認是評論者寫的原文。")
+        if n.find("w8nwRe") or any(x.tag == "button" and x.text().strip() in _TRUNC for x in n.walk()):
+            d["warnings"].append("評論沒有展開（有「更多」），請在 Google 地圖按「更多」後重新複製。")
+        if "?" in d["original"] or "\ufffd" in d["original"]:
+            d["warnings"].append("有「?」：可能是表情符號或罕用字在存檔時遺失，請對照 Google 地圖上的原文。")
+        if not d["posted"]:
+            d["warnings"].append("沒找到評論時間，請自己填日期（官網只顯示年月）。")
+        out.append(d)
+    return out
+
+
+def decode_paste(data: bytes) -> str:
+    """存成檔案的評論區：UTF-8（含 BOM）、UTF-16，或 Windows 記事本的「ANSI」（Big5／cp950）。
+    Big5 裡沒有的 Google 圖示字、表情符號會壞掉，換成 \ufffd 或已經是 ?。"""
+    if data[:3] == b"\xef\xbb\xbf":
+        return data[3:].decode("utf-8", errors="replace")
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp950", errors="replace")
+
+
+def batch_reviews(cur, text: str, today: Optional[date] = None) -> List[Dict[str, Any]]:
+    """拆成一則一則，每則附上：官網顯示名稱、建議節錄、要注意的句子、是不是已經轉貼過、能不能建草稿。
+    text 可以是整片複製的文字，或評論區的 HTML（reviews_from_html）。"""
+    if len(text or "") > BATCH_MAX:
+        raise Invalid("貼上的內容太長了，請分幾次貼。")
+    parsed = (reviews_from_html(text, today) if is_review_html(text)
+              else [parse_review(chunk, today) for chunk in split_reviews(text, today)])
+    out: List[Dict[str, Any]] = []
+    for d in parsed[:BATCH_LIMIT]:
+        d["warnings"] = [w for w in d["warnings"] if "不只一則" not in w]
+        if not d["original"] or not d["author"] or not d["posted"]:
+            continue                                   # 店名、總評分、排序選單這些不是評論
+        flags = [f for f in flag_sentences(d["original"]) if f["bad"]]
+        for f in flags:
+            del f["start"], f["end"], f["bad"]
+        h = hashlib.sha256(_squash(d["original"]).encode()).hexdigest()[:16]
+        cur.execute(f"SELECT id FROM {TABLE} WHERE kind='share' AND (JSON_UNQUOTE(JSON_EXTRACT(extra, '$.hash'))=%s "
+                    "OR JSON_UNQUOTE(JSON_EXTRACT(extra, '$.review_id'))=%s)", (h, d.get("review_id") or "-"))
+        dup = cur.fetchone()
+        out.append({**d, "person": mask_name(d["author"]), "flags": flags,
+                    "suggested": suggest_excerpt(d["original"]) if flags else d["original"],
+                    "duplicate": dup["id"] if dup else None, "rating": d["rating"] or 5, "photos": d.get("photos", 0),
+                    "review_id": d.get("review_id", ""), "posted_prec": d.get("posted_prec", "")})
+    return out
+
+
+def create_share_drafts(cur, items: List[Dict[str, Any]], actor: str, url: str = "",
+                        platform: str = "google") -> Dict[str, Any]:
+    """勾選的評論建成草稿（未勾同意）。不合格或重複的跳過，原因回給店員。"""
+    created, skipped, with_photos = [], [], []
+    stamp = datetime.now().strftime("%y%m%d%H%M%S")
+    for i, it in enumerate(items[:BATCH_LIMIT]):
+        body = {"kind": "share", "format": "quote", "platform": platform, "status": "draft", "consent": False,
+                "slug": f"q{stamp}-{i + 1}",           # 同一秒建很多則：自動代稱會撞，這裡自己編號
+                "url": it.get("url") or url, "rating": it.get("rating") or 5, "posted": it.get("posted") or "",
+                "author": it.get("author") or "", "person": it.get("person") or "",
+                "original": it.get("original") or "", "body_md": it.get("shown") or "",
+                "review_id": it.get("review_id") or "", "posted_prec": it.get("posted_prec") or "",
+                "review_photos": it.get("photos") or 0}
+        try:
+            clean = clean_post("share", body)
+            pid = save_post(cur, clean, actor)
+        except Invalid as e:
+            skipped.append({"person": body["person"] or mask_name(body["author"]), "reason": str(e)})
+            continue
+        created.append(pid)
+        if clean["extra"].get("review_photos"):
+            with_photos.append(pid)
+    return {"created": created, "skipped": skipped, "with_photos": with_photos}
+
+
 def _host_ok(url: str, domains: Optional[Tuple[str, ...]]) -> bool:
     if domains is None:
         return True
@@ -465,9 +745,21 @@ def _clean_quote(body: Dict[str, Any], out: Dict[str, Any], now: datetime) -> Di
         if p:
             raise Invalid(f"官網顯示的文字提到價格（「{p}」），請用節錄刪掉那一句。")
         out["warnings"] = [f"「{w}」可能被當成療效或誇大宣傳" for w in wording.claim_words(shown)]
-    return {"format": "quote", "platform": plat, "url": url, "rating": rating, "posted": posted,
-            "author": author, "person": person, "original": original,
-            "hash": hashlib.sha256(_squash(original).encode()).hexdigest()[:16]}
+    extra = {"format": "quote", "platform": plat, "url": url, "rating": rating, "posted": posted,
+             "author": author, "person": person, "original": original,
+             "hash": hashlib.sha256(_squash(original).encode()).hexdigest()[:16]}
+    rid = str(body.get("review_id") or "").strip()
+    if REVIEW_ID_RE.match(rid):
+        extra["review_id"] = rid                     # Google 評論的代號：原文存檔時有字遺失也認得出是同一則
+    if posted and body.get("posted_prec") == "year":
+        extra["posted_prec"] = "year"                # 「1 年前」推回去的：官網只顯示年
+    try:
+        photos = max(0, min(30, int(body.get("review_photos") or 0)))
+    except (TypeError, ValueError):
+        photos = 0
+    if photos:
+        extra["review_photos"] = photos              # 評論在 Google 上附了照片：不畫示意插圖，店員問過再上傳照片
+    return extra
 
 
 # 好評分享頁的「到 Google 地圖看全部評論」這類連結：y1web.web_settings k='share_links'，{平台代碼: 網址}
@@ -575,6 +867,11 @@ def _write(path: Path, data: bytes) -> None:
 def save_image(media_dir: Path, data: bytes, thumb: bool = False) -> str:
     """處理後存到官網的 media/uploads；同一張圖只存一次。thumb＝順便做卡片圖（封面圖）。回傳檔名。"""
     out, name = process_image(data)
+    return store_image(media_dir, out, name, thumb)
+
+
+def store_image(media_dir: Path, out: bytes, name: str, thumb: bool = False) -> str:
+    """process_image 處理好的圖存檔（已經存過就不再寫）。"""
     path = media_dir / name
     if not path.exists():
         _write(path, out)
@@ -636,6 +933,22 @@ def set_site_url(cur, url: str, actor: str) -> str:
     return url
 
 
+# 門市 YouTube 頻道：官網頁尾、服務據點和 LINE、FB、Google 圖示並列（John 2026-11-08），也放進結構化資料 sameAs。
+#   存在 y1web.web_settings k='youtube'；scripts/youtube_auth.py 授權（login）和檢查（check）時寫入。
+#   用頻道 id 的網址：帳號代號（@…）可以改，id 不會變。和 y1web app/content.py YOUTUBE_CHANNEL_RE 同規則
+YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+
+
+def set_youtube_channel(cur, channel_id: str, actor: str) -> str:
+    if not YOUTUBE_CHANNEL_ID_RE.match(channel_id or ""):
+        raise Invalid("YouTube 頻道 id 格式不對。")
+    url = f"https://www.youtube.com/channel/{channel_id}"
+    cur.execute("INSERT INTO y1web.web_settings (k, v, updated_by) VALUES ('youtube', %s, %s) "
+                "ON DUPLICATE KEY UPDATE v=VALUES(v), updated_by=VALUES(updated_by)",
+                (json.dumps({"url": url, "channel_id": channel_id}), actor))
+    return url
+
+
 # ── 資料存取（cur＝y1crm 的 DictCursor）────────────────────────
 
 def _row(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -647,7 +960,7 @@ def _row(r: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def list_posts(cur, kind: str) -> List[Dict[str, Any]]:
-    # 關於韻譯、使用小教室、補助小幫手照排序（就是官網上由上而下的順序）；專欄與好評新的在前
+    # 關於我們、使用小教室、補助小幫手照排序（就是官網上由上而下的順序）；專欄與好評新的在前
     order = "sort, id" if kind in ("about", "care", "subsidy") else "(publish_at IS NULL) DESC, publish_at DESC, id DESC"
     cur.execute(f"SELECT id, kind, slug, title, summary, body_md, category, status, publish_at, sort, "
                 f"cover, extra, updated_by, updated_at FROM {TABLE} WHERE kind=%s ORDER BY {order}", (kind,))
@@ -655,7 +968,7 @@ def list_posts(cur, kind: str) -> List[Dict[str, Any]]:
 
 
 def get_post(cur, pid: int) -> Optional[Dict[str, Any]]:
-    cur.execute(f"SELECT id, kind, slug, title, cover, body_md FROM {TABLE} "
+    cur.execute(f"SELECT id, kind, slug, title, cover, body_md, extra FROM {TABLE} "
                 f"WHERE id=%s AND kind IN ({','.join(repr(k) for k in KINDS)})", (pid,))
     return cur.fetchone()
 
@@ -670,9 +983,11 @@ def save_post(cur, clean: Dict[str, Any], actor: str, pid: Optional[int] = None)
     if _slug_taken(cur, clean["kind"], clean["slug"], pid):
         raise Invalid(f"網址代稱「{clean['slug']}」已經有人用了，請換一個。")
     h = clean["extra"].get("hash")
-    if h:                                   # 評論轉貼：同一則（原文相同）只轉貼一次
+    if h:                                   # 評論轉貼：同一則（原文相同、或 Google 評論代號相同）只轉貼一次
         cur.execute(f"SELECT id, title FROM {TABLE} WHERE kind='share' AND id<>%s "
-                    f"AND JSON_UNQUOTE(JSON_EXTRACT(extra, '$.hash'))=%s", (pid or 0, h))
+                    f"AND (JSON_UNQUOTE(JSON_EXTRACT(extra, '$.hash'))=%s "
+                    f"OR JSON_UNQUOTE(JSON_EXTRACT(extra, '$.review_id'))=%s)",
+                    (pid or 0, h, clean["extra"].get("review_id") or "-"))
         r = cur.fetchone()
         if r:
             raise Invalid(f"這則評論已經轉貼過了（{r['title']}）。")
@@ -689,9 +1004,16 @@ def save_post(cur, clean: Dict[str, Any], actor: str, pid: Optional[int] = None)
 
 
 def image_in_use(cur, name: str) -> bool:
-    """圖片還有沒有被任何內容用到（封面或內文），沒有才能刪檔。"""
+    """圖片還有沒有被任何內容用到（封面或內文、粉專貼文的配圖），沒有才能刪檔。"""
     cur.execute(f"SELECT COUNT(*) AS n FROM {TABLE} WHERE cover=%s OR body_md LIKE %s", (name, f"%{name}%"))
-    return cur.fetchone()["n"] > 0
+    if cur.fetchone()["n"] > 0:
+        return True
+    cur.execute("SELECT COUNT(*) AS n FROM fb_post_drafts WHERE image=%s OR card=%s",   # 同步到專欄時兩邊用同一個檔；card＝粉專圖卡
+                (name, name))
+    if cur.fetchone()["n"] > 0:
+        return True
+    from api import stock_art                  # 圖庫照片：暫時沒人用也要留著
+    return any(x.get("file") == name for x in stock_art.load())
 
 
 def remove_if_unused(cur, media_dir: Path, name: Optional[str]) -> None:

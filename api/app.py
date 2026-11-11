@@ -45,7 +45,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import care_reminders, dbpool, fb_page, hearing, line_bot, noah, web_admin
+from api import (article_import, care_reminders, dbpool, fb_drafts, fb_page, hearing, line_bot, motion_video, noah,
+                 post_art, post_card, review_art, stock_art, video_jobs, video_youtube, web_admin, youtube)
 from api.line_bot import router as line_router
 
 # DB 連線參數取自 config（config.toml / 環境變數），機密不再寫死於程式碼
@@ -313,6 +314,9 @@ def create_app() -> FastAPI:
     app.include_router(line_router)   # LINE webhook（api/line_bot.py；簽章驗證、不走 session）
     app.include_router(fb_page.router)   # Facebook 粉專 webhook（api/fb_page.py；同上）
     line_bot.start_reminder_scheduler()   # 預約提醒背景排程（每日固定時間推播）
+    fb_drafts.start_scheduler()           # 粉專貼文草稿（每天開店前由本機 AI 寫，管理者勾選才發）
+    video_youtube.start_scheduler()       # 官網嵌的 YouTube 影片每 6 小時重查（下架／改私人就改播自己的 MP4）
+    video_jobs.cleanup()                  # 「做影片」：上次沒做完的標成失敗、太舊的暫存刪掉
 
     # ── MPA：每個主功能一頁（layout 繼承共用 header/CSS/JS）────────
     #   程式(static/js)與 UI(templates)分離；切換主功能＝瀏覽器導頁＝記憶體歸零，
@@ -365,6 +369,10 @@ def create_app() -> FastAPI:
     @app.get("/fb-chat")
     def page_fb_chat(request: Request):
         return _page(request, "fb_chat.html", "fb-chat")
+
+    @app.get("/fb-posts")
+    def page_fb_posts(request: Request):
+        return _page(request, "fb_posts.html", "fb-posts")
 
     @app.get("/hearing")
     def page_hearing(request: Request):
@@ -1100,8 +1108,9 @@ def create_app() -> FastAPI:
                 "          ORDER BY m.id DESC LIMIT 1) AS last_text, "
                 "       (SELECT COUNT(*) FROM fb_messages m WHERE m.thread_id=t.id AND m.source='ai_draft' "
                 "          AND m.status='new') AS drafts, "
-                "       (SELECT w.title FROM fb_posts p JOIN y1web.web_posts w ON w.id=p.web_post_id "
-                "          WHERE p.fb_post_id=t.post_id ORDER BY p.id DESC LIMIT 1) AS post_title "
+                "       COALESCE((SELECT w.title FROM fb_posts p JOIN y1web.web_posts w ON w.id=p.web_post_id "
+                "          WHERE p.fb_post_id=t.post_id ORDER BY p.id DESC LIMIT 1), "
+                "        (SELECT d.topic FROM fb_post_drafts d WHERE d.fb_post_id=t.post_id LIMIT 1)) AS post_title "
                 "FROM fb_threads t ORDER BY t.last_msg_at DESC, t.id DESC LIMIT 100",
                 (fb_page.WINDOW_HOURS,))
             rows = [_row_json(r) for r in cur.fetchall()]
@@ -1179,6 +1188,195 @@ def create_app() -> FastAPI:
             if cur.rowcount == 0:
                 raise HTTPException(422, "這則 AI 建議已經處理過了。")
         return {"ok": True}
+
+    # ── 粉專貼文草稿（本機 AI 每天寫，管理者勾選才發；規則在 api/fb_drafts.py）──────────
+    #   權限用 web（admin、manager）：發文是門市對外的聲音，和官網管理同一群人。
+    _LINK_RE = re.compile(r"^https?://\S{3,490}$")
+
+    def _fbd_json(r: Dict[str, Any], site: str = "") -> Dict[str, Any]:
+        d = _row_json(r)
+        d["category_label"] = fb_drafts.CATEGORIES.get(r["category"], r["category"])
+        d["seo"] = fb_drafts._json(r.get("seo"))
+        d["picked"], d["web_sync"] = bool(r.get("picked")), bool(r.get("web_sync"))
+        d["image_meta"] = fb_drafts._json(r.get("image_meta"))
+        d["image_url"] = f"/api/web/media/{r['image']}" if r.get("image") else None
+        d["card_meta"] = fb_drafts._json(r.get("card_meta"))           # 圖卡（照片＋大字標題）：有就發這張
+        d["card_url"] = f"/api/web/media/{r['card']}" if r.get("card") else None
+        if r["status"] == "new":
+            e, d["check_warnings"] = fb_drafts.check(r["message"])
+            d["check_errors"] = e + (fb_drafts.column_errors(r) if r.get("web_sync") else [])
+            d["auto"], d["auto_note"] = fb_drafts.auto_status(r)
+        if r.get("web_slug") and site:
+            d["web_url"] = f"{site}/column/{r['web_slug']}"
+        return d
+
+    def _fbd_get(cur, did: int, editable: bool = True) -> Dict[str, Any]:
+        cur.execute("SELECT * FROM fb_post_drafts WHERE id=%s", (did,))
+        r = cur.fetchone()
+        if r is None:
+            raise HTTPException(404, "找不到這則草稿（可能已被刪除）。")
+        if editable and r["status"] != "new":
+            raise HTTPException(409, "這則已經發佈或刪掉了，請重新整理頁面。")
+        return r
+
+    def _fbd_link(v: Any) -> Optional[str]:
+        link = str(v or "").strip()
+        if link and not _LINK_RE.match(link):
+            raise HTTPException(422, "連結要是 http:// 或 https:// 開頭的完整網址。")
+        return link or None
+
+    @app.get("/api/fb/post-drafts")
+    def fb_post_drafts(request: Request):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("SELECT * FROM fb_post_drafts WHERE status='new' AND day >= %s ORDER BY day DESC, id",
+                        (date.today() - timedelta(days=fb_drafts.PENDING_DAYS),))
+            pending = [_fbd_json(r) for r in cur.fetchall()]
+            site = web_admin.get_site_url(cur, config.WEB["site_url"])
+            cur.execute("SELECT d.*, w.slug AS web_slug FROM fb_post_drafts d "
+                        "LEFT JOIN y1web.web_posts w ON w.id=d.web_article_id "
+                        "WHERE d.status IN ('published','dev') ORDER BY d.published_at DESC, d.id DESC LIMIT 20")
+            recent = [_fbd_json(r, site) for r in cur.fetchall()]
+        cfg = getattr(config, "SOCIAL", {})
+        dl = fb_drafts.auto_deadline(date.today())
+        return {"pending": pending, "recent": recent, "dev_mode": fb_page.dev_mode(),
+                "categories": fb_drafts.CATEGORIES, "column_categories": web_admin.COLUMN_CATEGORIES,
+                "auto": {"enabled": bool(cfg.get("draft_enabled", True)), "hour": int(cfg.get("draft_hour", 6)),
+                         "count": int(cfg.get("draft_count", 3)), "news": bool(cfg.get("news", True)),
+                         "publish_at": f"{dl:%H:%M}" if dl else "", "review_min": fb_drafts.AUTO_REVIEW_MIN}}
+
+    @app.post("/api/fb/post-drafts")
+    def fb_post_draft_new(request: Request, body: Dict[str, Any] = Body(...)):
+        """「多寫一則」：本機 AI 當場寫（約 10～40 秒）。有題目就照題目，沒有就從選的類別挑。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        cat = _clean(body.get("category")) or "own"
+        if cat not in fb_drafts.CATEGORIES:
+            raise HTTPException(422, "類別不對。")
+        brief = str(body.get("brief") or "").strip()[:500]
+        if cat == "own" and not brief:
+            raise HTTPException(422, "請寫下想寫的題目或重點。")
+        link = _fbd_link(body.get("link"))
+        try:
+            did = fb_drafts.write_one(cat, brief, user["username"], link)
+        except LookupError as e:
+            raise HTTPException(422, str(e.args[0]))
+        except Exception:  # noqa: BLE001
+            logging.getLogger("y1crm.fbdraft").exception("多寫一則失敗")
+            raise HTTPException(503, "本機 AI 沒有回應，請稍後再試。")
+        with _conn() as db, db.cursor() as cur:
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.put("/api/fb/post-drafts/{did}")
+    def fb_post_draft_save(request: Request, did: int, body: Dict[str, Any] = Body(...)):
+        """管理者改字、改連結、勾選（要不要發）、同步到聽力專欄和官網版資料（發佈前隨時存）。"""
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            _fbd_get(cur, did)
+            if "message" in body:
+                msg = str(body.get("message") or "").strip()
+                if not msg:
+                    raise HTTPException(422, "貼文內容不能是空的。")
+                if len(msg) > fb_page.MAX_POST:
+                    raise HTTPException(422, f"貼文太長，請控制在 {fb_page.MAX_POST} 字以內。")
+                cur.execute("UPDATE fb_post_drafts SET message=%s WHERE id=%s", (msg, did))
+            if "link" in body:
+                cur.execute("UPDATE fb_post_drafts SET link=%s WHERE id=%s", (_fbd_link(body.get("link")), did))
+            if "picked" in body:          # 取消勾選＝不要自動發
+                cur.execute("UPDATE fb_post_drafts SET picked=%s WHERE id=%s", (int(bool(body["picked"])), did))
+            if "web_sync" in body:
+                cur.execute("UPDATE fb_post_drafts SET web_sync=%s WHERE id=%s", (int(bool(body["web_sync"])), did))
+            if "seo" in body:
+                try:
+                    seo = fb_drafts.clean_seo_input(body["seo"])
+                except web_admin.Invalid as e:
+                    raise HTTPException(422, str(e))
+                cur.execute("UPDATE fb_post_drafts SET seo=%s WHERE id=%s", (json.dumps(seo, ensure_ascii=False), did))
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.post("/api/fb/post-drafts/{did}/regenerate")
+    def fb_post_draft_regen(request: Request, did: int):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            _fbd_get(cur, did)
+        try:
+            fb_drafts.regenerate(did)
+        except (LookupError, ValueError):
+            raise HTTPException(409, "這則已經發佈或刪掉了，請重新整理頁面。")
+        except Exception:  # noqa: BLE001
+            logging.getLogger("y1crm.fbdraft").exception("重寫草稿 #%s 失敗", did)
+            raise HTTPException(503, "本機 AI 沒有回應，請稍後再試。")
+        with _conn() as db, db.cursor() as cur:
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.post("/api/fb/post-drafts/{did}/art")
+    def fb_post_draft_art(request: Request, did: int, body: Dict[str, Any] = Body(...)):
+        """配圖：從圖庫挑一張，force＝換一張（已發佈的也可以：粉專上的不會變，同步的專欄封面會換）。回更新後的草稿。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        with _conn() as db, db.cursor() as cur:
+            r = _fbd_get(cur, did, False)
+            if r["status"] == "discarded":
+                raise HTTPException(409, "這則已經不要了。")
+        res = post_art.illustrate([did], [], user["username"], bool(body.get("force")))
+        if res["errors"]:
+            raise HTTPException(422, res["errors"][0])
+        with _conn() as db, db.cursor() as cur:
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.put("/api/fb/post-drafts/{did}/card")
+    def fb_post_draft_card(request: Request, did: int, body: Dict[str, Any] = Body(...)):
+        """圖卡：店員改大字標題（ai＝true：請本機 AI 重擬）→ 重做圖卡。回更新後的草稿。"""
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            r = _fbd_get(cur, did)
+            if not r["image"]:
+                raise HTTPException(422, "這則沒有配圖：請先按「挑一張」。")
+            try:
+                if body.get("ai"):
+                    post_card.build(cur, did, retitle=True)
+                else:
+                    title, sub = post_card.check_title(body.get("title"), body.get("sub"))
+                    post_card.build(cur, did, title, sub)
+            except ValueError as e:
+                raise HTTPException(422, str(e))
+            except FileNotFoundError:
+                raise HTTPException(422, "配圖的檔案不見了：請按「換一張」。")
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.delete("/api/fb/post-drafts/{did}/image")
+    def fb_post_draft_image_remove(request: Request, did: int):
+        """拿掉配圖（發成純文字或連結貼文）。"""
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            _fbd_get(cur, did)
+            post_art.set_draft_image(cur, _WEB_MEDIA, did, None)
+            return _fbd_json(_fbd_get(cur, did, False))
+
+    @app.delete("/api/fb/post-drafts/{did}")
+    def fb_post_draft_discard(request: Request, did: int):
+        """「不要這則」：留著紀錄（題目 60 天內不再出），只是不再列出。"""
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            _fbd_get(cur, did)
+            cur.execute("UPDATE fb_post_drafts SET status='discarded' WHERE id=%s AND status='new'", (did,))
+        return {"ok": True}
+
+    @app.post("/api/fb/post-drafts/publish")
+    def fb_post_draft_publish(request: Request, body: Dict[str, Any] = Body(...)):
+        """發佈勾選的。有錯誤（價格、待填）全部不發；療效／品牌提醒要帶 force=true 再送一次。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            ids = [int(i) for i in body.get("ids") or []]
+        except (TypeError, ValueError):
+            raise HTTPException(422, "請先勾選要發佈的貼文。")
+        try:
+            return fb_drafts.publish(ids, bool(body.get("force")), user["username"])
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except LookupError as e:
+            raise HTTPException(409, str(e.args[0]))
 
     # ── 客戶 ──────────────────────────────────────────────────
     @app.post("/api/customers/query")
@@ -2511,7 +2709,7 @@ uncertain(沒把握的欄位名陣列)"""
                 "birthdays": birthdays, "warranty": warranty, "todos": todos,
                 "month": {"year": today.year, "month": today.month, "counts": counts}}
 
-    # ── 官網管理（y1web 的關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手）─────────
+    # ── 官網管理（y1web 的關於我們／聽力專欄／好評分享／使用小教室／補助小幫手）─────────
     #   規則全在 api/web_admin.py（欄位檢查、圖片處理，有單元測試），這裡只管 I/O 與權限。
     #   資料寫進 y1web.web_posts；圖片存到官網的 media/uploads（config.WEB.media_dir）。
     _WEB_MEDIA = Path(config.WEB["media_dir"])
@@ -2546,7 +2744,7 @@ uncertain(沒把握的欄位名陣列)"""
         return {"kinds": web_admin.KINDS, "categories": web_admin.COLUMN_CATEGORIES,
                 "care_types": web_admin.CARE_TYPES, "subsidy_conditions": web_admin.SUBSIDY_CONDITIONS,
                 "statuses": web_admin.STATUSES, "site_url": site, "share_formats": web_admin.SHARE_FORMATS,
-                "share_platforms": platforms, "share_links": links}
+                "share_platforms": platforms, "share_links": links, "art": review_art.enabled()}
 
     @app.put("/api/web/site")
     def web_site_update(request: Request, body: Dict[str, Any] = Body(...)):
@@ -2583,6 +2781,121 @@ uncertain(沒把握的欄位名陣列)"""
         except web_admin.Invalid as e:
             raise HTTPException(422, str(e))
 
+    # 一次貼很多則 Google 評論 → 草稿（發佈仍要勾同意）；沒圖片的可以畫示意插圖（api/review_art.py）
+    @app.post("/api/web/share/batch")
+    def web_share_batch(request: Request, body: Dict[str, Any] = Body(...)):
+        """拆解整片複製的評論區（不存檔）：回一則一則的帳號、日期、原文、建議節錄、是不是轉貼過。"""
+        _require_menu(_current_user(request), "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                items = web_admin.batch_reviews(cur, str(body.get("text") or ""))
+                url = web_admin.get_share_links(cur).get("google", "")
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        return {"items": items, "url": url, "art": review_art.enabled()}
+
+    @app.post("/api/web/share/batch/create")
+    def web_share_batch_create(request: Request, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        items = body.get("items") if isinstance(body.get("items"), list) else []
+        if not items:
+            raise HTTPException(422, "請勾選要轉貼的評論。")
+        with _conn() as db, db.cursor() as cur:
+            url = web_admin.get_share_links(cur).get("google", "")
+            r = web_admin.create_share_drafts(cur, [x for x in items if isinstance(x, dict)], user["username"], url)
+        _wlog.info("官網管理 %s 批次轉貼評論：建 %s，跳過 %d", user["username"], r["created"], len(r["skipped"]))
+        draw = [i for i in r["created"] if i not in r["with_photos"]]      # 附了照片的等店員上傳照片
+        r["art_started"] = bool(draw and body.get("illustrate") and review_art.enabled()
+                                and review_art.start(draw, user["username"]))
+        return r
+
+    @app.post("/api/web/share/import-fb")
+    def web_share_import_fb(request: Request, body: Dict[str, Any] = Body(...)):
+        """粉專的推薦（正面、有文字）→ 好評轉貼草稿；轉貼過的（原文相同）自動跳過。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            recs = fb_page.recommendations()
+        except fb_page.GraphError as e:
+            raise HTTPException(502, str(e))
+        items = [{**x, "shown": web_admin.suggest_excerpt(x["original"])
+                  if any(f["bad"] for f in web_admin.flag_sentences(x["original"])) else x["original"]} for x in recs]
+        with _conn() as db, db.cursor() as cur:
+            fb_url = web_admin.get_share_links(cur).get("facebook")   # 有設「看全部評論」就連到那裡（店家從瀏覽器複製的，最準）
+            if fb_url:
+                items = [{**x, "url": fb_url} for x in items]
+            r = web_admin.create_share_drafts(cur, items, user["username"], platform="facebook")
+        _wlog.info("官網管理 %s 匯入粉專推薦：%d 則，建 %s", user["username"], len(recs), r["created"])
+        r["found"] = len(recs)
+        r["art_started"] = bool(r["created"] and body.get("illustrate") and review_art.enabled()
+                                and review_art.start(r["created"], user["username"]))
+        return r
+
+    @app.get("/api/web/share/illustrate")
+    def web_share_art_status(request: Request):
+        _require_menu(_current_user(request), "web")
+        return {**review_art.status, "enabled": review_art.enabled()}
+
+    @app.post("/api/web/share/illustrate")
+    def web_share_art(request: Request, body: Dict[str, Any] = Body(...)):
+        """畫示意插圖：ids 沒給＝所有沒圖片的評論轉貼；force＝已經是示意插圖的重畫。背景執行，用 GET 看進度。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        if not review_art.enabled():
+            raise HTTPException(503, "這台主機沒有設定畫圖的環境（config [imagegen]）。")
+        ids = body.get("ids")
+        try:
+            ids = [int(i) for i in ids] if isinstance(ids, list) else None
+        except (TypeError, ValueError):
+            raise HTTPException(422, "ids 格式不對。")
+        if not review_art.start(ids, user["username"], bool(body.get("force"))):
+            raise HTTPException(409, "已經有一批在畫了，請等它畫完。")
+        return {"ok": True}
+
+    @app.post("/api/web/illustrate")
+    def web_post_art(request: Request, body: Dict[str, Any] = Body(...)):
+        """聽力專欄、使用小教室的封面：從圖庫挑真實照片。ids 沒給＝這個類別（kind）所有沒封面的；force＝換一張。
+        店員自己放的封面（原圖）不會被蓋掉。回 {total, done, errors}。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        kind = body.get("kind")
+        if kind not in post_art.ART_KINDS:
+            raise HTTPException(422, "只有聽力專欄和使用小教室從圖庫挑封面。")
+        ids = body.get("ids")
+        try:
+            ids = [int(i) for i in ids] if isinstance(ids, list) else None
+        except (TypeError, ValueError):
+            raise HTTPException(422, "ids 格式不對。")
+        return post_art.illustrate([], ids, user["username"], bool(body.get("force")), (kind,))
+
+    # 聽力專欄「從網址翻譯文章」（api/article_import.py）：本機 AI 翻譯、圖片帶回並標出處；背景執行，GET 看進度；做好是草稿
+    @app.post("/api/web/translate")
+    def web_translate(request: Request, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        cat = body.get("category") or web_admin.COLUMN_CATEGORIES[0]
+        if cat not in web_admin.COLUMN_CATEGORIES:
+            raise HTTPException(422, "請選擇專欄分類。")
+        try:
+            url = article_import.check_url(str(body.get("url") or ""))
+            site = web_admin._text({"source_site": body.get("site")}, "source_site", False, "出處名稱") or ""
+        except web_admin.Invalid as e:
+            raise HTTPException(422, str(e))
+        html_text = body.get("html")                 # 網站擋程式讀取時：店員從瀏覽器複製貼上的原文
+        html_text = str(html_text) if isinstance(html_text, str) and html_text.strip() else None
+        if html_text and len(html_text) > article_import.PASTE_MAX:
+            raise HTTPException(413, "貼上的內容太長了，請只複製文章那一段。")
+        if not article_import.start(url, html_text, site, cat, body.get("images") is not False, user["username"]):
+            raise HTTPException(409, "已經有一篇在翻譯了，請等它做完。")
+        _wlog.info("官網管理 %s 翻譯文章 %s%s", user["username"], url, "（貼上原文）" if html_text else "")
+        return {"ok": True}
+
+    @app.get("/api/web/translate")
+    def web_translate_status(request: Request):
+        _require_menu(_current_user(request), "web")
+        return dict(article_import.status)
+
     @app.get("/api/web/posts")
     def web_posts(request: Request, kind: str):
         _require_menu(_current_user(request), "web")
@@ -2602,6 +2915,13 @@ uncertain(沒把握的欄位名陣列)"""
                 else:
                     kind = _web_kind(body.get("kind") or "")
                 clean = web_admin.clean_post(kind, body)
+                if pid is not None:     # 表單上沒有的欄位（AI 插圖標記、評論代號、照片數）存檔不能弄丟
+                    old_x = json.loads(old["extra"] or "{}") if isinstance(old["extra"], (str, bytes)) else (old["extra"] or {})
+                    keep = web_admin.carried_extra(old_x)
+                    if keep:
+                        clean["extra"] = {**(clean.get("extra") or {}), **keep}
+                    if old_x.get("posted_prec") and (clean.get("extra") or {}).get("posted") == old_x.get("posted"):
+                        clean["extra"]["posted_prec"] = old_x["posted_prec"]     # 日期沒改：還是只知道年
                 # 評論轉貼有療效／誇大用語：先回 warnings，店員確認後帶 force=true 再存一次
                 if clean.get("warnings") and not body.get("force"):
                     return {"ok": False, "warnings": clean["warnings"]}
@@ -2690,6 +3010,251 @@ uncertain(沒把握的欄位名陣列)"""
             raise HTTPException(502, err)
         return {"ok": True, "status": status, "fb_post_id": fid}
 
+    # 影片送 YouTube（api/video_youtube.py）：API 稽核通過前店員在 YouTube 工作室手動上傳，
+    #   這裡給要貼的標題／說明欄／標籤、下載影片檔，再收回 YouTube 網址（查過才讓官網嵌）。
+    def _web_video_post(cur, pid: int) -> Dict[str, Any]:
+        post = video_youtube.post_row(cur, pid)
+        if post is None:
+            raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+        if post["video"] is None:
+            raise HTTPException(422, "這篇還沒有影片。")
+        return post
+
+    @app.get("/api/web/posts/{pid}/youtube")
+    def web_post_youtube(request: Request, pid: int):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            post = _web_video_post(cur, pid)
+            store, site = fb_drafts.store_info(cur), fb_drafts.site_url(cur)
+        v, ch = post["video"], config.YOUTUBE.get("channel_id")
+        return {"pack": video_youtube.pack(post, store, site), "template": video_youtube.channel_template(store, site),
+                "video": {"sec": v.get("sec"), "at": v.get("at"),
+                          "tall": {"sec": v["tall"].get("sec"), "at": v["tall"].get("at"), "link": v["tall"].get("youtube")}
+                          if isinstance(v.get("tall"), dict) and v["tall"].get("file") else None},
+                "link": v.get("youtube"),
+                "authorized": youtube.authorized(), "published": post["status"] == "published",
+                "channel": f"https://www.youtube.com/channel/{ch}" if ch else None}
+
+    @app.put("/api/web/posts/{pid}/youtube")
+    def web_post_youtube_link(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                info = video_youtube.link(cur, pid, str(body.get("url") or ""), user["username"],
+                                          "tall" if body.get("which") == "tall" else "main")
+        except video_youtube.Invalid as e:
+            raise HTTPException(422, str(e))
+        return {"ok": True, "link": info}
+
+    @app.post("/api/web/posts/{pid}/youtube/check")
+    def web_post_youtube_check(request: Request, pid: int):
+        _require_menu(_current_user(request), "web")
+        video_youtube.recheck(pid)
+        with _conn() as db, db.cursor() as cur:
+            return {"link": _web_video_post(cur, pid)["video"].get("youtube")}
+
+    @app.post("/api/web/posts/{pid}/youtube/sync")
+    def web_post_youtube_sync(request: Request, pid: int, body: Dict[str, Any] = Body(default={})):
+        """視窗裡的說明、標籤（店員可以先改）寫到 YouTube 上那支影片；標題、類別不動。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                return video_youtube.sync_meta(cur, pid, user["username"], body.get("description"), body.get("tags"))
+        except video_youtube.Invalid as e:
+            raise HTTPException(422, str(e))
+
+    @app.delete("/api/web/posts/{pid}/youtube")
+    def web_post_youtube_unlink(request: Request, pid: int, which: str = "main"):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                video_youtube.unlink(cur, pid, "tall" if which == "tall" else "main")
+        except video_youtube.Invalid as e:
+            raise HTTPException(422, str(e))
+        _wlog.info("官網管理 %s 拿掉 #%s 的 YouTube 連結", user["username"], pid)
+        return {"ok": True}
+
+    # 做影片（api/motion_video.py、api/video_jobs.py）：AI 擬分鏡 → 店員改 → 背景產生 → 預覽 → 放上官網
+    def _video_article(cur, pid: int) -> Dict[str, Any]:
+        cur.execute(f"SELECT id, kind, slug, title, summary, body_md, category, status, extra FROM {web_admin.TABLE} "
+                    f"WHERE id=%s", (pid,))
+        post = cur.fetchone()
+        if post is None:
+            raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+        if post["kind"] != "article":
+            raise HTTPException(422, "目前只有聽力專欄的文章可以做影片。")
+        return post
+
+    @app.get("/api/web/posts/{pid}/video-plan")
+    def web_video_plan(request: Request, pid: int):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            post = _video_article(cur, pid)
+        x = fb_drafts._json(post["extra"])
+        photos = [{"id": e["id"], "title": e["title"], "file": e["file"]}
+                  for e in stock_art.available(stock_art.load(), _WEB_MEDIA) if not e.get("credit_required")]
+        return {"plan": x.get("video_draft"), "photos": photos, "kinds": motion_video.KIND_LABELS,
+                "header": motion_video.header_of(post["title"]), "job": video_jobs.latest(pid),
+                "has_video": isinstance(x.get("video"), dict) and bool(x["video"].get("file"))}
+
+    @app.post("/api/web/posts/{pid}/video-plan/ai")
+    def web_video_plan_ai(request: Request, pid: int):
+        """本機 AI 擬分鏡（30 秒～2 分鐘）。不存檔：店員看過、改過按「儲存分鏡」或「產生影片」才存。"""
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            post = _video_article(cur, pid)
+        return motion_video.draft_plan(post)
+
+    def _save_video_plan(cur, pid: int, plan: Dict[str, Any], user: str) -> Dict[str, Any]:
+        try:
+            plan = motion_video.check_plan(plan)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        cur.execute(f"UPDATE {web_admin.TABLE} SET extra=JSON_SET(COALESCE(extra, JSON_OBJECT()), '$.video_draft', "
+                    f"CAST(%s AS JSON)), updated_by=%s WHERE id=%s", (json.dumps(plan, ensure_ascii=False), user, pid))
+        return plan
+
+    @app.put("/api/web/posts/{pid}/video-plan")
+    def web_video_plan_save(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        with _conn() as db, db.cursor() as cur:
+            _video_article(cur, pid)
+            return {"ok": True, "plan": _save_video_plan(cur, pid, body.get("plan") or {}, user["username"])}
+
+    @app.post("/api/web/posts/{pid}/video-job")
+    def web_video_job_start(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        """存分鏡、開始產生影片（背景做，約 5 分鐘）。"""
+        user = _current_user(request)
+        _require_menu(user, "web")
+        with _conn() as db, db.cursor() as cur:
+            _video_article(cur, pid)
+            plan = _save_video_plan(cur, pid, body.get("plan") or {}, user["username"])
+        try:
+            return video_jobs.start(pid, plan, user["username"])
+        except video_jobs.Busy as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    def _job(job_id: str) -> Dict[str, Any]:
+        try:
+            return video_jobs.status(job_id)
+        except (KeyError, ValueError):
+            raise HTTPException(404, "找不到這個影片工作（可能已經放上官網或捨棄了）。")
+
+    @app.get("/api/web/video-jobs/{job_id}")
+    def web_video_job(request: Request, job_id: str):
+        _require_menu(_current_user(request), "web")
+        return _job(job_id)
+
+    @app.get("/api/web/video-jobs/{job_id}/{name}")
+    def web_video_job_file(request: Request, job_id: str, name: str):
+        _require_menu(_current_user(request), "web")
+        try:
+            path = video_jobs.file_path(job_id, name)
+        except KeyError:
+            raise HTTPException(404, "找不到檔案。")
+        return FileResponse(path, media_type="video/mp4" if name.endswith(".mp4") else "image/jpeg",
+                            headers={"Cache-Control": "private, no-store"})
+
+    @app.post("/api/web/video-jobs/{job_id}/install")
+    def web_video_job_install(request: Request, job_id: str):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        _job(job_id)
+        try:
+            info = video_jobs.install(job_id, user["username"])
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        _wlog.info("官網管理 %s 放上影片 %s", user["username"], info["file"])
+        return {"ok": True, "video": {k: info[k] for k in ("file", "poster", "sec", "at")}}
+
+    @app.delete("/api/web/video-jobs/{job_id}")
+    def web_video_job_discard(request: Request, job_id: str):
+        _require_menu(_current_user(request), "web")
+        _job(job_id)
+        try:
+            video_jobs.discard(job_id)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"ok": True}
+
+    # 影片發粉專（fb_page.publish_video）：直式＝Reels（建議）、橫式＝一般影片。價格字眼一律擋，療效用語先提醒
+    @app.get("/api/web/posts/{pid}/video-fb")
+    def web_video_fb_info(request: Request, pid: int):
+        _require_menu(_current_user(request), "web")
+        with _conn() as db, db.cursor() as cur:
+            post = _video_article(cur, pid)
+            site = fb_drafts.site_url(cur)
+            cur.execute("SELECT fb_post_id, status, error, created_by, created_at FROM fb_posts WHERE web_post_id=%s "
+                        "ORDER BY id DESC LIMIT 10", (pid,))
+            hist = [_row_json(r) for r in cur.fetchall()]
+        x = fb_drafts._json(post["extra"])
+        v = x.get("video") if isinstance(x.get("video"), dict) else None
+        if not v or not v.get("file"):
+            raise HTTPException(422, "這篇還沒有影片。")
+        plan = x.get("video_draft") or {}
+        return {"message": motion_video.fb_message(post, plan, site), "tall": bool((v.get("tall") or {}).get("file")),
+                "dev_mode": fb_page.dev_mode(), "history": hist, "published": post["status"] == "published"}
+
+    @app.post("/api/web/posts/{pid}/video-fb")
+    def web_video_fb_publish(request: Request, pid: int, body: Dict[str, Any] = Body(...)):
+        user = _current_user(request)
+        _require_menu(user, "web")
+        message = str(body.get("message") or "").strip()
+        errors, warns = fb_page.check_post_text(message)
+        e2, w2 = fb_drafts.check(message)
+        if errors or e2:
+            raise HTTPException(422, " ".join(errors + e2))
+        if (warns or w2) and not body.get("force"):
+            return {"ok": False, "warnings": warns + w2}
+        with _conn() as db, db.cursor() as cur:
+            post = _video_article(cur, pid)
+            site = fb_drafts.site_url(cur)
+        if post["status"] != "published":
+            raise HTTPException(422, "這篇還是草稿：請先把文章改成「發佈」，貼文裡的連結才看得到。")
+        v = fb_drafts._json(post["extra"]).get("video") or {}
+        src = v.get("tall") if body.get("which", "tall") == "tall" else v
+        if not isinstance(src, dict) or not src.get("file") or not video_youtube.FILE_RE.match(str(src["file"])):
+            raise HTTPException(422, "這篇沒有這個版本的影片。")
+        link = fb_page.post_url(site, post["kind"], post["slug"]) or ""
+        try:
+            vid = fb_page.publish_video(message, post["title"], (_WEB_MEDIA / src["file"]).read_bytes(),
+                                        (_WEB_MEDIA / src["poster"]).read_bytes() if src.get("poster") else None)
+            status, err = ("sent" if vid else "dev"), None
+        except fb_page.GraphError as e:
+            vid, status, err = None, "failed", str(e)
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("INSERT INTO fb_posts (web_post_id, fb_post_id, message, link, status, error, created_by) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s)", (pid, vid, message, link, status, err and err[:255], user["username"]))
+        _wlog.info("官網管理 %s 影片發粉專 #%s：%s %s", user["username"], pid, status, vid or err or "")
+        if status == "failed":
+            raise HTTPException(502, err)
+        return {"ok": True, "status": status, "id": vid,
+                "url": f"https://www.facebook.com/reel/{vid}/" if vid and body.get("which", "tall") == "tall"
+                else (f"https://www.facebook.com/{vid}" if vid else None)}
+
+    @app.get("/api/web/posts/{pid}/video.{ext}")
+    def web_post_video_file(request: Request, pid: int, ext: str, dl: int = 0, v: str = ""):
+        """後台預覽／下載文章的影片和封面（要上傳到 YouTube、粉專的檔案）。v=tall：直式 9:16 版。"""
+        _require_menu(_current_user(request), "web")
+        if ext not in ("mp4", "jpg") or v not in ("", "tall"):
+            raise HTTPException(404, "找不到檔案。")
+        with _conn() as db, db.cursor() as cur:
+            post = _web_video_post(cur, pid)
+        src = post["video"].get("tall") if v else post["video"]
+        name = str((src if isinstance(src, dict) else {}).get("file" if ext == "mp4" else "poster") or "")
+        path = _WEB_MEDIA / name
+        if not video_youtube.FILE_RE.match(name) or not name.endswith(ext) or not path.is_file():
+            raise HTTPException(404, "找不到檔案。")
+        return FileResponse(path, media_type="video/mp4" if ext == "mp4" else "image/jpeg",
+                            filename=f"{post['slug'] or pid}{'-9x16' if v else ''}.{ext}" if dl else None,
+                            headers={"Cache-Control": "private, max-age=3600"})
+
     @app.put("/api/web/posts/{pid}/cover")
     async def web_post_cover(request: Request, pid: int):
         user = _current_user(request)
@@ -2703,8 +3268,8 @@ uncertain(沒把握的欄位名陣列)"""
             old = web_admin.get_post(cur, pid)
             if old is None:
                 raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
-            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=%s, updated_by=%s WHERE id=%s",
-                        (name, user["username"], pid))
+            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=%s, updated_by=%s, extra={web_admin.UPLOAD_COVER_KEYS} "
+                        f"WHERE id=%s", (name, user["username"], datetime.now().strftime("%Y-%m-%d %H:%M"), pid))
             if old["cover"] != name:
                 web_admin.remove_if_unused(cur, _WEB_MEDIA, old["cover"])
         return {"ok": True, "cover": name}
@@ -2717,8 +3282,8 @@ uncertain(沒把握的欄位名陣列)"""
             old = web_admin.get_post(cur, pid)
             if old is None:
                 raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
-            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=NULL, updated_by=%s WHERE id=%s",
-                        (user["username"], pid))
+            cur.execute(f"UPDATE {web_admin.TABLE} SET cover=NULL, updated_by=%s, extra={web_admin.CLEAR_COVER_KEYS} "
+                        f"WHERE id=%s", (user["username"], pid))
             web_admin.remove_if_unused(cur, _WEB_MEDIA, old["cover"])
         return {"ok": True}
 

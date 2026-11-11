@@ -697,9 +697,94 @@
   .wa-flags li.price { background: var(--danger-bg); color: var(--danger); }
   .wa-flags li.claim { background: var(--warn-bg); color: var(--warn-text); }
   .wa-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+  /* 影片送 YouTube（web_admin.js waYouTube）：說明欄很長，視窗放寬 */
+  .modal-card:has(.yt-pack) { width: min(44rem, 94vw); }
+  .yt-pack video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; }
+  .yt-pack .modal-field input, .yt-pack .modal-field textarea, .yt-row input { width: 100%; box-sizing: border-box; }
+  .yt-pack .modal-field .btn { margin-top: .3rem; }
+  .yt-pack h4 { margin: 1rem 0 .4rem; }
+  .yt-count { float: right; }
+  .yt-steps { padding-left: 1.3rem; margin: .7rem 0; }
+  .yt-row { display: flex; gap: .5rem; }
+  .yt-row .btn { white-space: nowrap; }
+  /* 做影片（web_admin.js waMakeVideo）：分鏡表格＋進度＋預覽 */
+  .modal-card:has(.vid-pack) { width: min(60rem, 96vw); }
+  .vp-two { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .vp-row { display: grid; gap: .35rem; margin: .5rem 0; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; }
+  .vp-row textarea, .vp-row input, .vp-two input { width: 100%; box-sizing: border-box; }
+  .vp-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+  .vp-head select { max-width: 15rem; }
+  .vp-head img { width: 64px; height: 43px; object-fit: cover; border-radius: 4px; }
+  .vp-btns { display: flex; gap: .25rem; margin-left: auto; }
+  .vp-btns button { padding: .1rem .5rem; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text); cursor: pointer; }
+  .vp-prog { height: 10px; margin-top: .6rem; overflow: hidden; border-radius: 5px; background: var(--line); }
+  .vp-prog div { height: 100%; background: var(--brand); transition: width .5s; }
+  .vp-previews { display: flex; align-items: flex-start; gap: .6rem; }
+  .vp-previews video { width: 68%; border-radius: 6px; background: #000; }
+  .vp-previews video.tall { width: 30%; aspect-ratio: 9 / 16; }
+  .vp-radio { display: inline-flex; align-items: center; gap: .3rem; margin-right: 1rem; color: var(--text); font-size: .95rem; }
+  @media (max-width: 640px) { .vp-two { grid-template-columns: 1fr; } .vp-previews { flex-direction: column; }
+    .vp-previews video, .vp-previews video.tall { width: 100%; } }
   @media (max-width: 900px) { .wa-grid { grid-template-columns: 1fr; } }
   /* 外框／淡色按鈕：其他頁也用到 .btn.outline／.btn.ghost 但沒有定義（顯示成實心），這裡先只套在官網管理頁 */
   #wa-list-card .btn.outline, #wa-editor .btn.outline { background: transparent; color: var(--brand); }
   #wa-list-card .btn.outline:hover, #wa-editor .btn.outline:hover { background: var(--brand-soft); }
   #wa-editor .btn.ghost { background: transparent; border-color: var(--line); color: var(--text); }
   #wa-editor .btn.ghost:hover { background: var(--brand-soft); }
+
+  /* ── 粉專貼文（/fb-posts）：AI 草稿一則一張卡，勾選後由底部固定列發佈 ── */
+  .fp-new { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  .fp-new label { font-weight: 600; }
+  .fp-new select { width: auto; }
+  .fp-new input { flex: 1; min-width: 14rem; }
+  .fp-day { margin: 1.2rem 0 .5rem; color: var(--muted); font-size: .95rem; }
+  .fp-empty { padding: 1rem 0; }
+  .fp-item { border: 1px solid var(--line); border-radius: 8px; padding: .8rem; margin-bottom: .8rem; }
+  .fp-item.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--focus); }
+  .fp-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; margin-bottom: .5rem; }
+  .fp-pick { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; cursor: pointer; }
+  .fp-pick input { width: 1.25rem; height: 1.25rem; }
+  .fp-head .fp-topic { flex: 1 1 12rem; }
+  .fp-item textarea { width: 100%; resize: vertical; line-height: 1.6; field-sizing: content; min-height: 9rem; max-height: 70vh; }
+  .fp-link { display: flex; align-items: center; gap: .5rem; margin-top: .4rem; }
+  .fp-link input { flex: 1; min-width: 0; }
+  .fp-actions { display: flex; align-items: center; gap: .5rem; }
+  .fp-actions .hint { flex: 1; }
+  .fp-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: flex-end;
+            gap: .8rem; padding: .7rem 0; background: var(--card); border-top: 1px solid var(--line); }
+  .fp-recent { margin-top: 1rem; }
+  .fp-recent summary { cursor: pointer; color: var(--muted); }
+  .fp-sent { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; padding: .45rem 0;
+             border-bottom: 1px solid var(--line); }
+  .fp-sent .fp-topic { flex: 1 1 12rem; }
+  .fp-wrap .btn.ghost { background: transparent; border-color: var(--line); color: var(--text); }
+  .fp-wrap .btn.ghost:hover { background: var(--brand-soft); }
+  .fp-note { margin: 0 0 1rem; }
+  .fp-autos:empty { display: none; }
+  .fp-autos { margin: -.2rem 0 .4rem; }
+  .fp-auto { display: inline-block; font-size: .85rem; padding: .1rem .55rem; border-radius: 999px;
+             background: var(--thead-bg); color: var(--muted); }
+  .fp-auto.on { background: var(--ok-bg); color: var(--ok-text); font-weight: 600; }
+  .fp-web { margin-top: .5rem; padding: .5rem .6rem; border: 1px dashed var(--line); border-radius: 6px; }
+  .fp-web details summary { cursor: pointer; color: var(--muted); font-size: .92rem; margin-top: .2rem; }
+  .fp-seo { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: .5rem .8rem; margin-top: .5rem; }
+  .fp-seo label { display: flex; flex-direction: column; gap: .2rem; font-size: .92rem; font-weight: 600; }
+  .fp-seo label.wide { grid-column: 1 / -1; }
+  .fp-seo label .hint { font-weight: 400; }
+  .fp-err { color: var(--danger); font-size: .88rem; flex-basis: 100%; }
+  .fp-img { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .4rem .8rem; margin-bottom: .5rem; }
+  .fp-img img { display: block; width: 15rem; max-width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 6px;
+                border: 1px solid var(--line); }
+  .fp-img-side { flex: 1 1 12rem; display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
+  .fp-noimg { flex: 1 1 100%; color: var(--muted); font-size: .92rem; }
+  .fp-img-btns { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+  .fp-thumb { display: block; width: 4.5rem; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; align-self: center; }
+  .fp-thumb.card { width: 3.6rem; aspect-ratio: 4 / 5; }
+  .fp-img img.card { width: 13rem; aspect-ratio: 4 / 5; }               /* 圖卡 1080×1350 */
+  .fp-card { display: flex; flex-direction: column; gap: .35rem; width: 100%; max-width: 26rem;
+             padding: .5rem .6rem; border: 1px dashed var(--line); border-radius: 6px; }
+  .fp-card label { display: flex; align-items: center; gap: .4rem; font-size: .92rem; white-space: nowrap; }
+  .fp-card input { flex: 1 1 auto; min-width: 0; }
+  #fp-art:empty { display: none; }
+  @media (max-width: 640px) { .fp-seo { grid-template-columns: 1fr; } }
+  .wa-share-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: -.3rem 0 .8rem; }

@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 import threading
 import urllib.error
 import urllib.parse
@@ -42,6 +43,7 @@ log = logging.getLogger("y1crm.fb")
 router = APIRouter()
 
 _GRAPH = "https://graph.facebook.com"
+_GRAPH_VIDEO = "https://graph-video.facebook.com"     # 上傳影片要用這個網域
 WINDOW_HOURS = 24          # Messenger 標準回覆視窗：客人最後一則訊息後 24 小時內
 MAX_MESSENGER = 2000       # Messenger 單則文字上限
 MAX_COMMENT = 8000
@@ -95,13 +97,21 @@ def _friendly(err: Dict[str, Any], http: int) -> str:
 
 
 def _graph(path: str, payload: Optional[Dict[str, Any]] = None,
-           method: str = "POST") -> Optional[Dict[str, Any]]:
-    """用粉專權杖呼叫 Graph API。開發模式只記 log、回 None；失敗丟 GraphError。"""
+           method: str = "POST", files: Optional[Dict[str, Tuple[str, bytes, str]]] = None,
+           host: str = _GRAPH, timeout: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """用粉專權杖呼叫 Graph API。開發模式只記 log、回 None；失敗丟 GraphError。
+    files＝{欄位: (檔名, 內容, 類型)}：上傳檔案（multipart）。"""
     if dev_mode():
-        log.info("[FB 開發模式，未真發] %s %s %s", method, path,
-                 json.dumps(payload or {}, ensure_ascii=False)[:500])
+        log.info("[FB 開發模式，未真發] %s %s %s%s", method, path,
+                 json.dumps(payload or {}, ensure_ascii=False)[:500],
+                 f"（附檔 {', '.join(f'{k} {len(v[1])} bytes' for k, v in files.items())}）" if files else "")
         return None
-    return _call(_page_token(), path, payload, method)
+    extra: Dict[str, Any] = {"files": files} if files else {}
+    if host != _GRAPH:
+        extra["host"] = host
+    if timeout:
+        extra["timeout"] = timeout
+    return _call(_page_token(), path, payload, method, **extra)
 
 
 _tok_cache: Dict[str, str] = {}   # config 的權杖 → 實際使用的粉專權杖
@@ -125,22 +135,39 @@ def _page_token() -> str:
     return _tok_cache[raw]
 
 
+def multipart(fields: Dict[str, Any], files: Dict[str, Tuple[str, bytes, str]], boundary: str) -> bytes:
+    """multipart/form-data 的內容（上傳相片用）。"""
+    out = []
+    for k, v in fields.items():
+        out.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    for k, (fname, data, ctype) in files.items():
+        out.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"; filename="{fname}"\r\n'
+                   f'Content-Type: {ctype}\r\n\r\n'.encode() + data + b"\r\n")
+    out.append(f"--{boundary}--\r\n".encode())
+    return b"".join(out)
+
+
 def _call(token: str, path: str, payload: Optional[Dict[str, Any]],
-          method: str) -> Dict[str, Any]:
+          method: str, files: Optional[Dict[str, Tuple[str, bytes, str]]] = None,
+          host: str = _GRAPH, timeout: Optional[int] = None) -> Dict[str, Any]:
     ver = _cfg("graph_version") or "v24.0"
     data = dict(payload or {})
     if _cfg("app_secret"):
         data["appsecret_proof"] = appsecret_proof(token, _cfg("app_secret"))
-    url = f"{_GRAPH}/{ver}/{path}"
+    url = f"{host}/{ver}/{path}"
     body = None
+    ctype = "application/json"
     if method == "GET":
         url += "?" + urllib.parse.urlencode(data)
+    elif files:
+        boundary = "y1crm" + secrets.token_hex(12)
+        body, ctype = multipart(data, files, boundary), f"multipart/form-data; boundary={boundary}"
     else:
         body = json.dumps(data).encode()
     req = urllib.request.Request(url, data=body, method=method, headers={
-        "Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+        "Content-Type": ctype, "Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=timeout or (60 if files else 15)) as r:
             return json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         try:
@@ -159,8 +186,65 @@ def _call(token: str, path: str, payload: Optional[Dict[str, Any]],
 
 def publish_link(message: str, link: str) -> Optional[str]:
     """粉專發一則連結貼文。回貼文 id；開發模式回 None。"""
-    r = _graph(f"{_cfg('page_id') or 'me'}/feed", {"message": message, "link": link})
+    return publish_post(message, link)
+
+
+def publish_post(message: str, link: Optional[str] = None) -> Optional[str]:
+    """粉專發一則貼文（有 link 就是連結貼文，Facebook 會自己抓那頁的圖和標題）。回貼文 id；開發模式回 None。"""
+    payload = {"message": message}
+    if link:
+        payload["link"] = link
+    r = _graph(f"{_cfg('page_id') or 'me'}/feed", payload)
     return (r or {}).get("id")
+
+
+def publish_photo(message: str, image: bytes) -> Optional[str]:
+    """粉專發一則相片貼文（一張圖＋文字，圖是 JPEG 內容）。回貼文 id（不是相片 id）；開發模式回 None。
+    Facebook 不讓程式替已經發出的貼文加圖，所以圖要在發文時一起送。"""
+    r = _graph(f"{_cfg('page_id') or 'me'}/photos", {"message": message, "published": "true"},
+               files={"source": ("image.jpg", image, "image/jpeg")})
+    return (r or {}).get("post_id") or (r or {}).get("id")
+
+
+def publish_video(message: str, title: str, video: bytes, thumb: Optional[bytes] = None) -> Optional[str]:
+    """粉專發一則影片貼文（MP4＋文字，可附封面 JPEG）。回影片 id；開發模式回 None。
+    影片直接放在 Facebook 上，不貼 YouTube 連結：外部連結的觸及比原生影片低（John 2026-11-08 先拿 #42 試）。"""
+    files = {"source": ("video.mp4", video, "video/mp4")}
+    if thumb:
+        files["thumb"] = ("thumb.jpg", thumb, "image/jpeg")
+    r = _graph(f"{_cfg('page_id') or 'me'}/videos", {"description": message, "title": title, "published": "true"},
+               files=files, host=_GRAPH_VIDEO, timeout=300)
+    return (r or {}).get("id")
+
+
+FB_NO_NAME = "臉書用戶"     # Graph API 不給推薦者的名字：先放這個，店員問同意時再改成對方的稱呼
+
+
+def recommendations() -> List[Dict[str, Any]]:
+    """粉專的「推薦」（正面、有文字的）→ 好評轉貼草稿要的欄位。開發模式回空清單。
+    Facebook 不給推薦者名字、也沒有單則推薦的網址：名字先放 FB_NO_NAME，原文連結指到粉專的評論頁。"""
+    page = _cfg("page_id") or "me"
+    rows: List[Dict[str, Any]] = []
+    after = None
+    for _ in range(20):
+        q: Dict[str, Any] = {"fields": "created_time,recommendation_type,review_text", "limit": 100}
+        if after:
+            q["after"] = after
+        r = _graph(f"{page}/ratings", q, method="GET")
+        if r is None:
+            return []
+        rows += r.get("data") or []
+        after = ((r.get("paging") or {}).get("cursors") or {}).get("after")
+        if not (r.get("paging") or {}).get("next"):
+            break
+    out = []
+    for x in rows:
+        text = (x.get("review_text") or "").strip()
+        if x.get("recommendation_type") != "positive" or not text:
+            continue
+        out.append({"author": "", "person": FB_NO_NAME, "posted": (x.get("created_time") or "")[:10],
+                    "rating": None, "original": text, "url": f"https://www.facebook.com/{page}/reviews"})
+    return out
 
 
 def reply_comment(comment_id: str, text: str) -> Optional[str]:

@@ -45,6 +45,7 @@ MENUS = [
     ]},
     {"title": "官網", "icon": "🌐", "sort": 25, "children": [
         {"title": "官網管理", "icon": "📝", "path": "/web-admin", "perm": "web", "sort": 26},
+        {"title": "粉專貼文", "icon": "📣", "path": "/fb-posts",  "perm": "web", "sort": 27},
     ]},
     {"title": "系統", "icon": "⚙️", "sort": 30, "children": [
         {"title": "人員管理", "icon": "👤", "path": "/staff", "perm": "staff", "sort": 31},
@@ -59,7 +60,7 @@ PERMISSIONS = {
     "hearing":   ["admin", "manager", "sales", "user"],
     "purchases": ["admin", "manager", "sales"],
     "products":  ["admin", "manager"],
-    "web":       ["admin", "manager"],     # 官網管理：關於韻譯／聽力專欄／好評分享／使用小教室／補助小幫手
+    "web":       ["admin", "manager"],     # 官網管理（關於我們／聽力專欄／好評分享／使用小教室／補助小幫手）、粉專貼文
     "staff":     ["admin"],
 }
 

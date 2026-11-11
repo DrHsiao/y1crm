@@ -50,6 +50,15 @@ verify_token  = ""        # 自己產生的亂碼（例：python3 -c "import sec
 graph_version = "v24.0"
 ai_reply      = "draft"   # Messenger 私訊：off／draft（只產草稿）／auto（直接回）；公開留言一律只產草稿
 
+[youtube]
+# YouTube 頻道（api/youtube.py）：Google Cloud 專案 y1-youtube 的「電腦版應用程式」OAuth 用戶端
+# 填好 client_id、client_secret 後跑一次 sudo venv/bin/python scripts/youtube_auth.py login，
+# refresh_token、channel_id 由程式寫進來（不要手動改）；檢查授權：... youtube_auth.py check
+client_id     = ""
+client_secret = ""        # 機密
+refresh_token = ""        # 機密
+channel_id    = ""
+
 [ai]
 # LINE 客服 AI（本機 ollama-573 純文字實例；⚠ 絕不可送影像，那張卡 vision 推論會崩）
 enabled           = true
@@ -67,6 +76,21 @@ vision_timeout_secs = 60
 key = ""
 
 [web]
-# 官網管理（y1web 官網的關於韻譯／聽力專欄／好評分享）：上傳的圖片存到官網的 media/uploads
+# 官網管理（y1web 官網的關於我們／聽力專欄／好評分享）：上傳的圖片存到官網的 media/uploads
 media_dir = "/home/john/y1web/media/uploads"
 site_url  = "http://192.168.1.88:8006"   # 備用：正式值在「官網管理 → 官網網址」，換網域改那裡
+
+[social]
+# 粉專貼文草稿（api/fb_drafts.py；CRM「粉專貼文」）：本機 AI 每天寫幾則，預設勾選；
+# 到 auto_publish 的時間門市沒取消勾選就自動發到粉專（John 2026-11-08）。有紅色錯誤或黃色提醒的不會自動發。
+draft_enabled = true     # false＝不自動寫（頁面上仍可按「多寫一則」）
+draft_hour    = 6        # 0–23，這個整點之後寫當天的（開店前，避開 LINE 客服的尖峰）
+draft_count   = 3
+news          = true     # 生活新聞、醫療時事（中央社、衛福部、疾管署、自由時報的 RSS）
+auto_publish  = "10:30"  # HH:MM；留空＝不自動發，一律手動按「發佈勾選的」
+
+[imagegen]
+# 好評分享沒有圖片的評論，依文意畫示意插圖（api/review_art.py）。只跑在 0002 那張卡（以序號認卡）
+enabled = true
+python  = "/home/john/media/ghibli/venv/bin/python"   # 要有 torch（支援 sm_70）＋diffusers
+hf_home = "/mnt/raid1/llm_models/huggingface"        # SDXL base 的快取（離線載入，不會連網下載）

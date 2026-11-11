@@ -1,0 +1,22 @@
+{
+ "post": 107,
+ "header": "助聽器嗶嗶叫怎麼辦？",
+ "title": ["助聽器嗶嗶叫？", "先檢查這兩件事"],
+ "lines": [
+  {"kind": "title", "icon": "beep", "say": "助聽器突然嗶嗶叫？先別緊張。", "photo": "us-dn6KOZXmISw"},
+  {"kind": "feedback", "say": "這種聲音叫回饋音：聲音從耳道漏出來，又被助聽器的麥克風收進去，就會嗶嗶叫。",
+   "label": "嗶嗶聲是怎麼來的", "photo": "us-bmzkW_nN0pQ"},
+  {"kind": "photo", "say": "最常見的原因，是助聽器沒有確實戴進耳道，位置偏掉了。", "label": "原因 1　沒戴好",
+   "photo": "us-dn6KOZXmISw", "focus": [0.70, 0.55], "ring": [0.70, 0.55, 0.075], "move": "in"},
+  {"kind": "photo", "say": "這時候先輕輕把助聽器往耳道裡推好，調整一下位置。", "label": "先輕輕推好",
+   "photo": "us-84wwIPN3rmY", "focus": [0.42, 0.72], "arrow": [0.42, 0.72], "move": "right"},
+  {"kind": "domes", "say": "耳塞太小或太大，也會讓聲音漏出來。", "label": "原因 2　耳塞尺寸不合", "photo": "us-bmzkW_nN0pQ"},
+  {"kind": "photo", "say": "尺寸合不合，請回門市讓驗配師幫您確認。", "label": "回門市確認尺寸",
+   "photo": "px-8313438", "focus": [0.50, 0.40], "move": "left"},
+  {"kind": "photo", "say": "如果常常發生，請不要勉強使用，回門市調整設定或更換配件。", "label": "常發生就回門市",
+   "photo": "us-zQlHjxx3vSU", "focus": [0.30, 0.32], "move": "in"},
+  {"kind": "end", "say": "有狀況不用擔心，我們很樂意幫您一起找出原因。", "photo": "px-36670377", "focus": [0.55, 0.45],
+   "move": "in", "cta": ["嗶嗶聲常常出現？", "回門市，我們一起找原因"],
+   "buttons": [["線上預約到門市", "/booking"], ["LINE 諮詢", "/line"]]}
+ ]
+}
