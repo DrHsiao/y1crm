@@ -46,6 +46,7 @@ GPU_TEMP_WARN = 85                                   # V100：87 硬體降頻、
 FLAGS = {
     "/tmp/gpu_thermal_failing": "GPU 溫控讀不到溫度（溫控失效）",
     "/tmp/gpu_thermal_card_missing": "GPU 缺卡（溫控清點少了卡）",
+    "/tmp/watercool_alert": "5717 水冷守衛",
     "/tmp/ollama_watchdog_failing": "ollama 看門狗：常駐模型不在卡上",
     "/tmp/backup_failing": "每日備份失敗",
 }

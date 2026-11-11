@@ -36,6 +36,7 @@
 | `ollama_warmup.sh` | 開機後**並行**預載兩個模型（各約 7.5 分鐘） | `ollama-warmup.service`（oneshot） |
 | `ollama_watchdog.py` | 每 10 分鐘確認常駐模型還在，掉了自動載回 | `ollama-watchdog.timer` |
 | `gpu_thermal_guard.py` | 80°C 降功耗上限、70°C 恢復 | root crontab 每分鐘 |
+| `watercool_guard.py` | 5717 水冷：泵速曲線、停轉偵測、HBM／GPU 分級降功耗 | `watercool-guard.service`（常駐，每 2 秒） |
 | `*.service` / `*.timer` | 上面三者的 systemd 單元 | — |
 
 - 為什麼要預熱：`KEEP_ALIVE=-1` 只保證「已載入的不卸載」，重開機後 VRAM 是空的。
@@ -46,6 +47,18 @@
 - 溫控失效的徵兆：`/tmp/gpu_thermal_failing` 旗標與 log 裡的 `QUERY_FAILED`（全部卡都讀不到）。
 - 單卡失效：log 的 `CARD_ERROR`/`CARD_MISSING` 與 `/tmp/gpu_thermal_card_missing` 旗標；應在線的卡以序號列在腳本 `EXPECTED_CARDS`，換卡/拆卡要同步改。一張卡掉線時整批查詢會失敗，腳本會退回逐卡（依 bus）查詢，其餘好卡照樣受保護。
 
+## 5717 水冷守衛（2026-11-11）
+
+- 泵接主機板 **SYS_FAN1**＝nct6779 `pwm1`／`fan1`。**一定要 PWM 模式**（`pwm1_mode=1`），BIOS 預設的 DC 模式對這顆泵無效。
+- 冷排**沒裝風扇**：閒置撐得住，滿載 ~290W 時 HBM 約 3.5 分鐘到 85°C 上限。裝了風扇後門檻可以重新評估。
+- 泵速：閒置 30%（≈1440 rpm）；`max(GPU,HBM)` 50→65°C 線性加速；功耗 ≥120W 直接全速。加速立即，降速先等 2 分鐘再每 30 秒降 10%。
+- 智能試停：30% 檔＋`max(GPU,HBM)` ≤45°C＋功耗 <60W 穩定 10 分鐘才試停；停泵後升 3°C 或功耗 ≥60W 就恢復 30%。停滿 60 秒沒升溫＝成功，泵就一直停著；60 秒內失敗則 30 分→1→2→4 小時（封頂）再試。卡上有程式佔著（P0 ~40W）時，停泵約 5 秒就升 3°C，幾乎都會失敗。
+- 功耗：GPU 78／HBM 82°C → 200W；GPU 82／HBM 84°C → 150W；兩者 ≤70／75°C 穩定 60 秒才逐級恢復。
+- 推播（旗標 `/tmp/watercool_alert` → ops healthcheck，狀態改變才推）：泵停轉、150W 仍過熱 60 秒、無法控制泵 60 秒。其餘只記 `/mnt/raid1/monitoring/watercool_guard.log`（事件＋每小時一行）。
+- 看狀態：`sudo python3 scripts/gpu/watercool_guard.py --status`
+- 與 `gpu_thermal_guard.py` 分工：水冷守衛心跳（`/run/watercool_guard.json`）新鮮時，溫控守護不碰 5717 的功耗；心跳停 30 秒就接手。
+- 停止或當掉時泵自動回 BIOS 全速（`ExecStopPost=--restore`）。若停止時正在降功耗，上限會留在 200／150W，log 的 `STOP` 那行會寫。
+
 ## 安裝／還原（重灌或換機後）
 
 ```bash
@@ -55,6 +68,9 @@ sudo systemctl enable --now ollama-warmup.service ollama-watchdog.timer
 # 溫控（root crontab 每分鐘）
 sudo crontab -l | grep -q gpu_thermal_guard || \
   ( sudo crontab -l; echo '* * * * * /usr/bin/python3 /home/john/y1crm/scripts/gpu/gpu_thermal_guard.py >> /mnt/raid1/monitoring/gpu_thermal_cron.log 2>&1' ) | sudo crontab -
+# 水冷守衛（風扇晶片驅動開機自動載入）
+echo nct6775 | sudo tee /etc/modules-load.d/nct6775.conf
+sudo systemctl enable --now watercool-guard.service
 ```
 
 驗證：

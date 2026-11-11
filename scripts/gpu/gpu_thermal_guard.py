@@ -9,6 +9,7 @@
 import json
 import os
 import subprocess
+import time
 from datetime import datetime
 
 STATE_FILE = "/tmp/gpu_thermal_state.json"
@@ -28,8 +29,15 @@ MISSING_FLAG = "/tmp/gpu_thermal_card_missing"   # 有卡沒讀到溫度（掉�
 EXPECTED_CARDS = {
     "1422019000002": "0002 好卡(OCR)",
     "1422019000573": "573 軟壞卡(純文字)",
+    "1565019015717": "5717 水冷卡(冷排未裝風扇,HBM易先到85C)",
 }
 FIELDS = "index,serial,temperature.gpu,power.limit"
+
+# 水冷守衛（watercool_guard.py）運作中會每 2 秒更新這個檔；
+# 心跳新鮮時，它管的卡（5717）的功耗交給它，這裡不碰，免得兩邊互相蓋掉。
+# 心跳超過 WATERCOOL_STALE_S 沒更新＝水冷守衛停了，這裡照常接手。
+WATERCOOL_STATUS = "/run/watercool_guard.json"
+WATERCOOL_STALE_S = 30
 
 
 class QueryError(RuntimeError):
@@ -89,6 +97,17 @@ def query_gpus():
     if not gpus:
         raise QueryError("; ".join(bad) or "nvidia-smi 回報 0 張 GPU")
     return gpus, bad
+
+
+def watercool_managed() -> set:
+    """水冷守衛心跳新鮮時，回傳它負責的序號；否則空集合。"""
+    try:
+        if time.time() - os.stat(WATERCOOL_STATUS).st_mtime > WATERCOOL_STALE_S:
+            return set()
+        with open(WATERCOOL_STATUS) as f:
+            return set(json.load(f).get("managed_serials", []))
+    except (OSError, ValueError):
+        return set()
 
 
 def set_power_limit(index: str, watts: int) -> bool:
@@ -151,12 +170,16 @@ def main():
         log("CARD_ALL_PRESENT")
 
     state = load_state()
+    managed = watercool_managed()
 
     for g in gpus:
         serial, temp, index = g["serial"], g["temp"], g["index"]
         throttled = state.get(serial, {}).get("throttled", False)
 
-        if temp >= CRIT_TEMP and not throttled:
+        if serial in managed:
+            # 交給水冷守衛；清掉自己的節流狀態，之後接手時從頭判斷
+            state.pop(serial, None)
+        elif temp >= CRIT_TEMP and not throttled:
             if set_power_limit(index, THROTTLE_LIMIT_W):
                 state[serial] = {"throttled": True}
                 log(f"THROTTLE serial={serial} index={index} temp={temp}")

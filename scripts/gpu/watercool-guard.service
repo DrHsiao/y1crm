@@ -1,0 +1,16 @@
+[Unit]
+Description=5717 水冷守衛（泵速曲線＋停轉偵測＋功耗保護）
+Documentation=file:///home/john/y1crm/scripts/gpu/README.md
+After=systemd-modules-load.service nvidia-persistenced.service
+
+[Service]
+Type=simple
+ExecStartPre=-/sbin/modprobe nct6775
+ExecStart=/usr/bin/python3 /home/john/y1crm/scripts/gpu/watercool_guard.py
+# 不管正常停止或當掉，泵都回 BIOS 全速
+ExecStopPost=/usr/bin/python3 /home/john/y1crm/scripts/gpu/watercool_guard.py --restore
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
