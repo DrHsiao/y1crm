@@ -34,7 +34,7 @@ import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import bcrypt
 import pymysql
@@ -1813,7 +1813,7 @@ def create_app() -> FastAPI:
             config.delete_file(row["rel_path"])
         return {"ok": True}
 
-    # ── 紙本表單 OCR（本機 ollama qwen3-vl；個資不出區網）───────
+    # ── 紙本表單 OCR（本機 ollama qwen3.8；個資不出區網）───────
     _OLLAMA_URL = config.OCR["ollama_url"]
     # 2026-07-13：改用 Instruct 變體。實測 Thinking 版做 OCR 會生成 ~2800 思考 token（113s/張），
     #   Instruct 同圖只 ~250 token（13.5s/張，快 ~8.4×），JSON 準確度相當。think 參數關不掉
@@ -1824,7 +1824,8 @@ def create_app() -> FastAPI:
 空白或無法辨識的欄位填 null；手寫潦草處用你最好的判斷。
 凡是筆跡潦草、有多種可能讀法的欄位（特別是姓名、電話、編號、地址的字），務必把欄位名列入 uncertain 陣列——寧可多列不要漏列。欄位：
 customer_code(客戶編號), registration_date(建檔日期，表上為民國年，輸出如 114/11/13),
-name(姓名), gender("M"或"F"), national_id(身分證字號),
+name(姓名；台灣常見複姓有 張簡、張廖、簡廖、范姜、歐陽、司馬、諸葛、上官、司徒，四個字的姓名前兩字常是複姓或冠夫姓（夫姓＋本姓，例如 陳林、李廖），第二個字通常也是姓氏，請對照字形辨識，
+     不確定就照字形填並把 name 列入 uncertain), gender("M"或"F"), national_id(身分證字號),
 birth_date(出生年月日，表上為西元，輸出如 1935-06-02),
 phone_home(通訊電話市話), phone_mobile(通訊電話個人手機), email(電子信箱),
 contact_name(聯絡人姓名), contact_phone(聯絡人電話；若寫「同上」就輸出字串"同上"),
@@ -1849,11 +1850,12 @@ uncertain(沒把握的欄位名陣列)"""
         except ValueError:
             return None
 
-    def _call_ocr(image_b64: str, mime: str, prompt: Optional[str] = None) -> Dict[str, Any]:
+    def _call_ocr(image_b64: str, mime: str, prompt: Optional[str] = None, think: Any = False) -> Dict[str, Any]:
+        # think：預設關（照實抄寫最快）；客戶表單可由 config [ocr] form_think 暫時打開（2026-11-13 測試用）
         payload = json.dumps({
             "model": _OCR_MODEL, "prompt": prompt or _OCR_PROMPT, "images": [image_b64],
             "stream": False, "keep_alive": -1,
-            "think": False,   # qwen3-vl 是 thinking 模型：OCR 只要 JSON，關掉 CoT 省下大量生成 token（實測延遲主因）
+            "think": think,   # qwen3.8 預設會思考：OCR 只要 JSON，關掉 CoT 省下大量生成 token（實測延遲主因）
             "options": {"temperature": 0, "num_ctx": 8192},
         }).encode()
         req = urllib.request.Request(f"{_OLLAMA_URL}/api/generate", data=payload,
@@ -1863,6 +1865,8 @@ uncertain(沒把握的欄位名陣列)"""
                 r = json.loads(res.read())
         except urllib.error.URLError as e:
             raise HTTPException(503, f"本機辨識服務未回應（GPU 可能在休眠時段）：{e.reason}")
+        logging.getLogger("y1crm.ocr").info("OCR 模型：思考 %d 字、生成 %s token（think=%s）",
+                                            len(r.get("thinking") or ""), r.get("eval_count"), think)   # 只記長度
         text = (r.get("response") or "").strip()
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)   # 去掉 markdown 圍欄
         m = re.search(r"\{.*\}", text, re.S)
@@ -1870,6 +1874,30 @@ uncertain(沒把握的欄位名陣列)"""
             raise HTTPException(502, "辨識結果無法解析，請重拍或改為手動輸入。")
         try:
             return json.loads(m.group(0))
+        except ValueError:
+            raise HTTPException(502, "辨識結果不是有效格式，請重拍或改為手動輸入。")
+
+    def _chat_ocr(messages: List[Dict[str, Any]], think: Any = False) -> Tuple[Dict[str, Any], str]:
+        """對話式 OCR（2026-11-13）：回傳（解析後的 JSON, 原始文字）。接續同一段對話追問時，
+        llama.cpp 會沿用前面讀過的圖（提示詞快取），重讀姓名實測 1.2 秒；重送整張圖要約 11 秒。"""
+        payload = json.dumps({"model": _OCR_MODEL, "messages": messages, "stream": False, "keep_alive": -1,
+                              "think": think, "options": {"temperature": 0, "num_ctx": 8192}}).encode()
+        req = urllib.request.Request(f"{_OLLAMA_URL}/api/chat", data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as res:
+                r = json.loads(res.read())
+        except urllib.error.URLError as e:
+            raise HTTPException(503, f"本機辨識服務未回應（GPU 可能在休眠時段）：{e.reason}")
+        msg = r.get("message") or {}
+        logging.getLogger("y1crm.ocr").info("OCR 模型：思考 %d 字、生成 %s token（think=%s）",
+                                            len(msg.get("thinking") or ""), r.get("eval_count"), think)   # 只記長度
+        raw_text = (msg.get("content") or "").strip()
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text)
+        m = re.search(r"\{.*\}", text, re.S)
+        if not m:
+            raise HTTPException(502, "辨識結果無法解析，請重拍或改為手動輸入。")
+        try:
+            return json.loads(m.group(0)), raw_text
         except ValueError:
             raise HTTPException(502, "辨識結果不是有效格式，請重拍或改為手動輸入。")
 
@@ -1887,7 +1915,11 @@ uncertain(沒把握的欄位名陣列)"""
             raise HTTPException(413, "圖片超過 10MB，請縮小後再上傳。")
 
         # 阻塞的推論丟到執行緒，避免卡住整個服務（一張約 1 分鐘）
-        raw = await asyncio.to_thread(_call_ocr, base64.b64encode(data).decode(), mime)
+        _t0 = time.time()
+        _think = config.OCR.get("form_think") or False
+        _msgs = [{"role": "user", "content": _OCR_PROMPT, "images": [base64.b64encode(data).decode()]}]
+        raw, _raw_text = await asyncio.to_thread(_chat_ocr, _msgs, _think)
+        logging.getLogger("y1crm.ocr").info("客戶表單 OCR 完成：%.1f 秒（思考=%s）", time.time() - _t0, _think)   # 只記時間，不記內容（個資）
 
         uncertain = [str(x) for x in raw.get("uncertain") or [] if isinstance(x, str)]
         fields: Dict[str, Any] = {}
@@ -1920,8 +1952,37 @@ uncertain(沒把握的欄位名陣列)"""
         if fields.get("national_id"):
             fields["national_id"] = fields["national_id"].upper()
 
+        # 合理性檢查（2026-11-13）：只標黃、不改值（姓氏／複姓、身分證檢查碼、性別對身分證、年齡、日期、電話、Email）
+        from api import ocr_check
+        reasons = ocr_check.check(fields)
+        # 姓名不合理 → 針對姓名欄再讀一次（仍關思考，約多 7～10 秒）。第二個字給「常見姓氏」當參考：
+        #   2026-11-13 冠夫姓「李廖」被讀成「李聲」——四字姓名的第二字幾乎都是姓（複姓或冠夫姓）。
+        #   重讀結果合理才採用，但一律保留標黃並寫明原讀值，由店員對照紙本確認。
+        if "name" in reasons and fields.get("name"):
+            old = fields["name"]
+            rq = (f"上面姓名欄讀成「{old}」，但這個姓不太合理。"
+                  "台灣四個字的姓名幾乎都是複姓（張簡、張廖、簡廖、范姜、歐陽…）或冠夫姓（夫姓＋本姓，例如 陳林、李廖、王陳），"
+                  "所以第二個字通常也是姓氏，常見的有：廖 陳 林 黃 張 李 王 吳 劉 蔡 楊 許 鄭 謝 郭 洪 曾 邱 賴 周 徐 蘇 葉 莊 呂 江 何 "
+                  "蕭 羅 高 潘 簡 朱 鍾 彭 游 詹 胡 施 沈 余 趙 盧 梁 顏 柯 孫 魏 翁 戴 范 宋 方 鄧 杜 傅 侯 曹 溫 薛 丁 馬 蔣 唐。"
+                  "請再仔細看一次姓名欄每個字的字形，用台灣正體中文只輸出 JSON：{\"name\": \"姓名\"}")
+            try:
+                r2, _ = await asyncio.to_thread(_chat_ocr, _msgs + [{"role": "assistant", "content": _raw_text},
+                                                                     {"role": "user", "content": rq}], False)
+                new = re.sub(r"\s", "", str(r2.get("name") or ""))
+            except Exception:
+                new = ""
+            if new and new != old and "name" not in ocr_check.check({"name": new}):
+                fields["name"] = new
+                reasons["name"] = f"第一次讀成「{old}」，針對姓名重讀後改為「{new}」，請對照紙本確認"
+            logging.getLogger("y1crm.ocr").info("OCR 姓名重讀：%s", "已改用重讀結果" if fields["name"] != old else "重讀沒有更合理的結果")
+        if reasons:
+            logging.getLogger("y1crm.ocr").info("OCR 合理性檢查標記：%s", ",".join(reasons))   # 只記欄位名，不記內容
+        for k in reasons:
+            if k not in uncertain:
+                uncertain.append(k)
         return {"fields": fields,
-                "uncertain": [u for u in uncertain if u in fields or u in _OCR_DATE_FIELDS]}
+                "uncertain": [u for u in uncertain if u in fields or u in _OCR_DATE_FIELDS],
+                "reasons": {k: v for k, v in reasons.items() if k in fields}}
 
     # ── OCR 模型載入狀態 ────────────────────────────────────────
     # 2026-07-12：移除舊「PCI bind/unbind 省電」機制（每日輪替 unbind 卡導致
@@ -1997,7 +2058,7 @@ uncertain(沒把握的欄位名陣列)"""
             _ocr_warm.update(state="idle", error=None)
         return {"state": "idle"}
 
-    # ── 聽檢輔助（MA42 螢幕照片／PDF → 本機 qwen3-vl 讀值 → 講義規則判讀）───
+    # ── 聽檢輔助（MA42 螢幕照片／PDF → 本機 qwen3.8 讀值 → 講義規則判讀）───
     #   規則全在 api/hearing.py（純函式、有單元測試），這裡只管 I/O 與權限。
     #   讀值與表單 OCR 共用同一個常駐模型（同 model 名，不會互相擠出 VRAM），
     #   模型載入狀態也沿用 /api/ocr/warmup、/api/ocr/status。
