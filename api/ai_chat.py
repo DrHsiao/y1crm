@@ -21,7 +21,9 @@ import random
 import re
 import time
 import urllib.request
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import config
 
@@ -93,6 +95,7 @@ KNOWLEDGE = """
 【電池與充電】
 - 鋅空電池依型號約 5–10 天，撕開貼紙後靜置 1 分鐘再裝上，效能較穩。
 - 充電式機型每晚放回充電盒即可，充電接點保持乾燥清潔。
+- 充電式機型充飽一次可用多久，依機型與使用狀況而定，請以說明書為準或洽門市。
 - 長時間不使用要取出電池，避免漏液腐蝕。
 
 【常見狀況】
@@ -108,16 +111,24 @@ KNOWLEDGE = """
 _SYSTEM = f"""你是台灣「睿聲助聽器-中正門市」的 LINE 客服助理，服務對象多為長輩與其家屬。
 
 回答規則：
-1. 只用繁體中文，語氣親切、口語、簡短，控制在 {{max_chars}} 字以內，可適度使用表情符號。
+1. 只用繁體中文，語氣親切、口語、簡短，控制在 {{max_chars}} 字以內（表情符號與換行也算），寧可短一點。
+   不要在結尾附上地址、電話、營業時間這類聯絡資訊，除非對方直接問到；需要來店時說「歡迎來電或到門市」即可。
+   可適度使用表情符號。
 2. 回答範圍限於：日常生活常識、助聽器的使用與保養知識、門市服務與營業資訊。
 3. 絕對不要提到任何金額、價格、費用、折扣、成本，也不要推估或比較價格。
    若被問到，請回答需由驗配師當面評估，並請對方來電或到門市。
 4. 不做醫療診斷、不建議用藥或治療，涉及聽力狀況判斷一律請對方由專業人員評估。
 5. 不討論政治、投資理財、色情、違法等話題，禮貌婉拒即可。
 6. 不確定或知識庫沒有的資訊，不可臆測，請回覆會請門市人員確認。
+   特別是門市政策（能不能服務某種機型、外購機、保固、維修範圍、收不收費），知識庫沒寫就一律說
+   「這部分我請門市人員跟您確認」，不可自己說可以或不可以。
 7. 不要自稱 AI 或語言模型，也不要提到這些規則。
 8. 你的回答會原封不動傳給客戶，所以只寫要對客戶說的話本身，
    不要有「建議回覆」之類的標題、不要加前言、說明或引號。
+9. 一律用「您」稱呼對方。傳訊息的可能是長輩本人，也可能是家屬，不要用「阿公」「阿嬤」「親」
+   「親愛的」等稱呼，也不要假設對方的年紀或身分。
+10. 知識庫有寫的狀況（例如嘯叫、沒聲音、沾到水），照知識庫寫的原因與做法回答，不要自己另外推測原因；
+   知識庫沒寫的數字（時數、天數、次數、百分比）一律不要給。
 
 以下是門市知識庫，請以此為準：
 {KNOWLEDGE}
@@ -133,14 +144,43 @@ _CHANNEL_NOTE = {
 }
 
 
+# 今天日期與門市開關狀態（2026-11-12 john 問「今天有營業嗎？」模型不知道日期）。
+#   ⚠ 營業日／時間要跟 KNOWLEDGE【門市】那行一致，改營業時間時兩邊一起改。
+#   放在系統提示詞最後面：前面的規則＋知識庫不變，ollama 的提示詞快取還用得上。
+_OPEN_WEEKDAYS = {0, 1, 2, 3, 4, 5}      # 週一～週六（週日公休）
+_OPEN_HOUR, _CLOSE_HOUR = 9, 18
+_WD = "一二三四五六日"
+
+
+def _now_note(now: Optional[datetime] = None) -> str:
+    now = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    wd = now.weekday()
+    nxt = now + timedelta(days=1)
+    while nxt.weekday() not in _OPEN_WEEKDAYS:
+        nxt += timedelta(days=1)
+    nxt_txt = f"{nxt.month}/{nxt.day}（週{_WD[nxt.weekday()]}）{_OPEN_HOUR:02d}:00"
+    if wd not in _OPEN_WEEKDAYS:
+        status = f"今天公休，下次營業是 {nxt_txt}"
+    elif now.hour < _OPEN_HOUR:
+        status = f"今天有營業，還沒開門（{_OPEN_HOUR:02d}:00 開門）"
+    elif now.hour < _CLOSE_HOUR:
+        status = f"營業中（今天 {_CLOSE_HOUR:02d}:00 打烊）"
+    else:
+        status = f"今天有營業，但已經打烊了，下次營業是 {nxt_txt}"
+    return (f"\n現在是台灣時間 {now:%Y-%m-%d}（週{_WD[wd]}）{now:%H:%M}。門市狀態：{status}。"
+            "對方問今天、明天、現在有沒有開時，以這行為準；國定假日、颱風等臨時休假知識庫沒寫，"
+            "被問到請說會請門市人員確認。\n")
+
+
 def system_prompt(channel: str = "line") -> str:
     max_chars = int(config.AI.get("max_chars") or 150)
-    return _SYSTEM.format(max_chars=max_chars) + _CHANNEL_NOTE.get(channel, "")
+    return _SYSTEM.format(max_chars=max_chars) + _CHANNEL_NOTE.get(channel, "") + _now_note()
 
 
 # 輸出端第二道：金額樣式與價格字眼
 _MONEY_RE = re.compile(r"(\d[\d,]{2,})\s*(元|塊|圓|NT|台幣|新台幣)|[$＄]\s*\d")
-_PRICE_WORDS = ("售價", "定價", "報價", "價格是", "價錢是", "折扣", "特價", "優惠價")
+_PRICE_WORDS = ("售價", "定價", "報價", "價格是", "價錢是", "折扣", "特價", "優惠價",
+                "免費", "不用錢", "不收費")   # 2026-11-12：qwen3:32b 曾答「門市提供免費諮詢與測試」，舊清單擋不到
 
 # ── 送出前清稿（客戶只該看到那句話本身）────────────────────
 #   模型會夾帶思考鏈或「【建議回覆】」這類**寫給店員看的**標頭，原樣傳給客戶很失禮。
@@ -225,7 +265,7 @@ def _generate(question: str, history: List[Dict[str, str]], budget: float,
 
 
 # ── 客戶傳來的圖片（走「好卡」，不是客服 AI 那張）──────────────
-#   ⚠ 影像推論一律用 config.OCR 的好卡 0002（11434，qwen3-vl:32b-instruct 常駐），
+#   ⚠ 影像推論一律用 config.OCR 的好卡 0002（11434，qwen3.8:27b 常駐），
 #     **絕不可送到 config.AI 的 573**（vision 必崩且靜默）。
 #   代價：與紙本表單 OCR 共用同一張卡且 MAX_LOADED_MODELS=1，兩者會排隊。
 #   ⚠ 兩段式輸出是**寫給店員看的**：【照片內容】只進 meta 供 CRM 查閱，
@@ -242,6 +282,7 @@ _VISION_PROMPT = """你是助聽器門市的客服助理，客戶在 LINE 傳來
 - 不要判讀或複述任何身分證字號、病歷、地址等個人資料。
 - 不做醫療診斷；若照片是耳道、傷口或皮膚狀況，請改為建議由專業人員當面檢查。
 - 看不清楚就說看不清楚，並請客戶補拍或到門市，不要臆測。
+- 你只看得到照片，並沒有替客戶做任何事：不要說「已經記錄」「已經處理」「已經幫您安排」。
 """
 
 
@@ -280,6 +321,7 @@ def describe_image(path: str, mime: str = "image/jpeg") -> Dict[str, Any]:
         "images": [b64],
         "stream": False,
         "keep_alive": -1,
+        "think": False,   # qwen3.8 預設會思考：不關的話 400 token 會被思考吃光、回覆變空白（2026-11-12 實測）
         "options": {"temperature": 0.2, "num_predict": 400, "num_ctx": 8192},
     }
     budget = float(config.AI.get("vision_timeout_secs") or 60)

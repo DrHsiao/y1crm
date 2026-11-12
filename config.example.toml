@@ -23,7 +23,7 @@ charset  = "utf8mb4"
 
 [ocr]
 ollama_url = "http://127.0.0.1:11434"
-model      = "qwen3-vl:32b-instruct"
+model      = "qwen3.8:27b"
 
 [server]
 host = "0.0.0.0"
@@ -68,7 +68,7 @@ timeout_secs      = 30      # 逾時回道歉文；LINE reply token 約 1 分鐘
 auto_reply        = false   # false＝只產草稿給店員審核（第一階段）；true＝直接回客戶
 human_hold_hours  = 4       # 人工接手後多久自動交還 AI
 max_chars         = 150
-# 客戶傳來的圖片：交給好卡（[ocr] 的 11434 / qwen3-vl）看圖產草稿，573 絕不碰影像
+# 客戶傳來的圖片：交給好卡（[ocr] 的 11434 / qwen3.8）看圖產草稿，573 絕不碰影像
 vision_timeout_secs = 60
 
 [board]

@@ -41,7 +41,7 @@ _DEFAULTS: dict = {
     },
     "ocr": {
         "ollama_url": "http://127.0.0.1:11434",
-        "model": "qwen3-vl:32b-instruct",
+        "model": "qwen3.8-flash-next:125b-a6b-q4_K_M",
     },
     "line": {
         "channel_id": "",
@@ -58,12 +58,12 @@ _DEFAULTS: dict = {
     "ai": {
         "enabled": True,
         "url": "http://127.0.0.1:11435",   # ollama-573（純文字專用實例）
-        "model": "qwen3:32b",
+        "model": "qwen3.8-flash-next:125b-a6b-q4_K_M",
         "timeout_secs": 30,     # 逾時就回道歉文；LINE reply token 約 1 分鐘失效，不宜貼邊
         "auto_reply": False,    # False＝只產生草稿給店員審核（第一階段）；True＝直接回客戶
         "human_hold_hours": 4,  # 人工接手後多久自動交還 AI（另外隔日開店也會復原）
         "max_chars": 150,       # 回覆長度上限（提示詞用）
-        # 客戶傳來的圖片：走「好卡」config.OCR（11434, qwen3-vl），不是上面的 573
+        # 客戶傳來的圖片：走「好卡」config.OCR（11434, qwen3.8），不是上面的 573
         "vision_timeout_secs": 60,
     },
     # Facebook 粉專（api/fb_page.py）：page_token 未設＝開發模式，發文與回覆只記 log 不打 Graph API

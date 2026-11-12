@@ -390,7 +390,8 @@ def from_vlm(raw: Any) -> Dict[str, Any]:
     """模型回傳的 rows（每頻率一列、每種符號一欄）轉成 thr 格式；不合法的值丟掉並計數。
     2026-10-19 合成聽力圖（已知答案 20 點）實測 qwen3-vl:32b-instruct：結果隨提示詞措辭大幅擺盪，
     最好一版氣導 11/12 正確但骨導全漏，另一版抓到骨導但約一半差 5 dB；模型也不會自己標出沒把握。
-    → 前端把讀值全部標黃待人工確認；可靠的路要等真實 MA42 PDF 樣本做專用解析。"""
+    → 前端把讀值全部標黃待人工確認；可靠的路要等真實 MA42 PDF 樣本做專用解析。
+    2026-11-12 換成 qwen3.8:27b：同樣提示詞讀合成聽力圖 19/20（骨導 8 點讀到 7 點、0 錯；qwen3-vl 同圖 11/20 骨導全漏）。"""
     raw = _dict(raw)
     thr: Dict[str, Dict[str, Dict[str, Any]]] = {ear: {k: {} for k in KINDS} for ear in EARS}
     unc_in = {str(u).strip().upper() for u in raw.get("uncertain") or [] if isinstance(u, str)}
