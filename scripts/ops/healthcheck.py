@@ -39,9 +39,20 @@ KNOWN_ISSUES = {
     "smart:57JEK0PAFPBE": "sdb 壞碟（SMART FAILED），已退出 RAID，待拆除送修",
 }
 
+# SMART 歷史已重配置磁區基準值：硬碟序號 → {屬性ID: 已知穩定值}
+#   2026-11-13：ID 5（Reallocated_Sector_Ct 已重配置磁區）是硬碟內建韌體自動將壞磁區替換至備用磁區後的
+#   歷史累計次數，出廠後只增不減、無法透過任何程式歸零。
+#   Toshiba 4TB（57I5Y071FPBE，/mnt/hdd）於 2026-11-12 完成全碟長檢測與選擇性檢測皆無錯誤，
+#   且 197（待處理磁區）= 0、198（無法修正磁區）= 0，確認這 15 個磁區已由韌體替換完畢且狀況穩定。
+#   因此將 ID 5 = 15 設為基準值：維持在 15 以內時不列為待處理問題；若未來 > 15（新增壞軌）或 187/197/198 > 0 才告警。
+SMART_BASELINES = {
+    "57I5Y071FPBE": {"5": 15},
+}
+
 SERVICES = ["y1crm", "mysql", "docker", "nginx", "openclaw-twiii"]   # openclaw-twii 已於 2026-09-27 退役封存
-CONTAINERS = ["ollama", "ollama-573"]
-DISKS = {"/": 90, "/mnt/raid1": 90, "/boot": 85}     # 掛載點 → 告警門檻 %
+CONTAINERS = ["ollama-all"]
+CONTAINERS_EXTRA = ["searxng"]   # Telegram 即時查詢用的搜尋聚合（2026-11-12）；跟 llm_mode_switch 切換的那一行分開
+DISKS = {"/": 90, "/mnt/raid1": 90, "/boot": 85, "/mnt/hdd": 90}   # /mnt/hdd：2026-11-12 Toshiba 4TB，大型非即時資料     # 掛載點 → 告警門檻 %
 GPU_TEMP_WARN = 85                                   # V100：87 硬體降頻、90 關機
 FLAGS = {
     "/tmp/gpu_thermal_failing": "GPU 溫控讀不到溫度（溫控失效）",
@@ -66,13 +77,15 @@ def sh(cmd, timeout=30):
 # ── 各項檢查：回傳 [(key, 說明, 需連續幾輪)] 與摘要用的資訊 ──────────────
 
 def check_raid(p, info):
+    # 2026-10-10：只剩一顆硬碟的 RAID1（md0）已拆掉，/mnt/raid1 改成一般硬碟（掛載位置不變）。
+    #   改成檢查資料碟有沒有掛上；若之後又建了 md 陣列，下面照樣檢查降級。
+    if not os.path.ismount("/mnt/raid1"):
+        p.append(("data:unmounted", "資料碟 /mnt/raid1 沒掛上", 1))
     try:
         md = open("/proc/mdstat").read()
     except OSError:
         return
     arrays = re.findall(r"^(md\d+) : (\w+) (\w+) .*?\n\s+\d+ blocks.*?\[(\d+)/(\d+)\] \[([U_]+)\]", md, re.M)
-    if not arrays:
-        p.append(("raid:none", "找不到 RAID 陣列 md0（/mnt/raid1 可能沒掛上）", 1))
     for name, state, level, want, have, bar in arrays:
         info.append(f"{name} {level} [{have}/{want}] [{bar}]")
         if "_" in bar or have != want or state != "active":
@@ -94,9 +107,12 @@ def check_smart(p, info):
         for m in re.finditer(r"^\s*(5|187|197|198)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\d+)", out, re.M):
             attrs[m.group(1)] = int(m.group(2))
         bad = {k: v for k, v in attrs.items() if v}
+        # 扣除已知穩定的歷史重配置基準值（例如 ID 5 已由韌體替換完成且不再增加），超過基準值才告警
+        baseline = SMART_BASELINES.get(sn, {})
+        warn_bad = {k: v for k, v in bad.items() if v > baseline.get(k, 0)}
         label = f"{dev.split('/')[-1]}（{sn}）"
         info.append(f"{label} SMART {health}" + (f" 壞軌計數 {bad}" if bad else ""))
-        if health != "PASSED" or bad:
+        if health != "PASSED" or warn_bad:
             p.append((key, f"硬碟 {label} SMART {health}" +
                       (f"，重新配置/待處理磁區 {bad}（5=已重配置 197=待處理 198=無法修正）" if bad else ""), 1))
 
@@ -175,7 +191,7 @@ def check_services(p, info):
             p.append((f"loop:{f[0]}", f"服務 {f[0]} 一直在重啟（已重啟 {n.strip()} 次）", 2))
     rc, out = sh(["docker", "ps", "--format", "{{.Names}}"])
     running = set(out.split())
-    for c in CONTAINERS:
+    for c in CONTAINERS + CONTAINERS_EXTRA:
         if c not in running:
             p.append((f"ctr:{c}", f"容器 {c} 沒有在跑", 2))
     info.append(f"服務 {len(SERVICES) - len(down)}/{len(SERVICES)} 正常、容器 {len([c for c in CONTAINERS if c in running])}/{len(CONTAINERS)}")

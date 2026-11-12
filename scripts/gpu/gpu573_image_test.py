@@ -9,7 +9,7 @@ replay 0、沒有 AER，靜態資料分不出原因 → 實測。
 由輕到重四段，前一段有問題就停、不往下做：
   A. 運算：fp16 矩陣乘＋主機↔顯卡來回搬 2GB，逐次比對（gpu573_torch_stage.py compute），和 0002 算的雜湊比
   B. SDXL 畫 3 張（cpu_offload＝每一步都在 PCIe 上搬權重），同 seed 在 0002 畫一張比對
-  C. 臨時 ollama（只看得到 573、127.0.0.1:11436）用 minicpm-v 讀 5 張合成測試圖——和 LINE 客服的 qwen3:32b 並存
+  C. 臨時 ollama（只看得到 573、127.0.0.1:11437）用 minicpm-v 讀 5 張合成測試圖——和 LINE 客服的 qwen3:32b 並存
   D. 原始情境：ollama-573 卸下 qwen3:32b、載入 qwen3-vl:32b-instruct 讀 3 張測試圖，做完一定換回 qwen3:32b
      並確認回得了話。⚠ 這段 LINE 客服 AI 會暫停（逾時會送道歉文、轉人工）。
 監控：每秒記 573 的溫度／功耗／時脈／PCIe；≥ STOP_TEMP 立刻停下那段，降到 RESUME_TEMP 以下再繼續；
@@ -34,7 +34,7 @@ SERIAL_573, SERIAL_0002 = "1422019000573", "1422019000002"
 TORCH_PY = "/home/john/media/ghibli/venv/bin/python"          # 有 torch（sm_70）＋diffusers 的環境，只借來跑
 HF_HOME = "/mnt/raid1/llm_models/huggingface"
 STAGE_SCRIPT = Path(__file__).resolve().parent / "gpu573_torch_stage.py"
-OLLAMA_573, OLLAMA_TEST = "http://127.0.0.1:11435", "http://127.0.0.1:11436"
+OLLAMA_573, OLLAMA_TEST = "http://127.0.0.1:11435", "http://127.0.0.1:11437"
 TEXT_MODEL, VL_MODEL, SMALL_VL = "qwen3:32b", "qwen3-vl:32b-instruct", "minicpm-v:latest"
 STOP_TEMP, RESUME_TEMP = 80, 65
 OUT = Path("/mnt/raid1/monitoring")
@@ -225,7 +225,7 @@ def stage_c(u573: str) -> bool:
     subprocess.run(["docker", "rm", "-f", "ollama-573-test"], capture_output=True)
     r = subprocess.run(["docker", "run", "-d", "--rm", "--name", "ollama-573-test", "--gpus", f"device={u573}",
                         "-e", "CUDA_VISIBLE_DEVICES=0", "-e", "OLLAMA_KEEP_ALIVE=0", "-e", "OLLAMA_MAX_LOADED_MODELS=1",
-                        "-v", "/mnt/raid1/llm_models/ollama:/root/.ollama", "-p", "127.0.0.1:11436:11434",
+                        "-v", "/mnt/raid1/llm_models/ollama:/root/.ollama", "-p", "127.0.0.1:11437:11434",
                         "ollama/ollama"], capture_output=True, text=True)
     if r.returncode:
         log(f"C：臨時容器起不來：{r.stderr.strip()}")

@@ -27,8 +27,9 @@ from datetime import datetime
 
 # （名稱, API, 應常駐的模型）——與 /home/john/workspace/ollama_warmup.sh 一致
 ENDPOINTS = [
-    ("OCR/好卡0002", "http://127.0.0.1:11434", "qwen3-vl:32b-instruct"),
-    ("客服AI/573", "http://127.0.0.1:11435", "qwen3:32b"),
+    ("OCR/好卡0002", "http://127.0.0.1:11434", "qwen3.8-flash-next:125b-a6b-q4_K_M"),
+    ("客服AI/573", "http://127.0.0.1:11435", "qwen3.8-flash-next:125b-a6b-q4_K_M"),
+    ("分析/5717", "http://127.0.0.1:11436", "qwen3.8-flash-next:125b-a6b-q4_K_M"),   # 2026-11-12 新增
 ]
 
 LOG_FILE = "/mnt/raid1/monitoring/ollama_watchdog.log"
@@ -74,8 +75,28 @@ def warm(base: str, model: str) -> float:
     return time.time() - t0
 
 
+# 暫停檢查（測試別的模型時用）：{"bases": ["http://127.0.0.1:11436"], "until": epoch秒, "why": "..."}
+# 過期自動失效，忘了刪也不會永久關掉看門狗。
+SKIP_FILE = "/run/ollama_watchdog_skip.json"
+
+
+def skipped(base: str) -> str:
+    try:
+        with open(SKIP_FILE) as f:
+            d = json.load(f)
+        if base in d.get("bases", []) and time.time() < float(d.get("until", 0)):
+            return d.get("why", "")
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def check(tag: str, base: str, model: str) -> bool:
     """回 True 表示這個實例現在是好的。"""
+    why = skipped(base)
+    if why is not None:
+        log(f"SKIP {tag} 暫停檢查：{why}")
+        return True
     try:
         models = loaded_models(base)
     except Exception as e:                       # noqa: BLE001

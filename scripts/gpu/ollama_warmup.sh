@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ollama_warmup.sh — 開機後把兩個模型預先載進 VRAM
+# ollama_warmup.sh — 開機後把三個模型預先載進 VRAM（2026-11-12 加 5717 分析模型）
 #
 # 為什麼需要：ollama 的 KEEP_ALIVE=-1 只保證「已載入的不被卸載」，重開機後 VRAM 是空的。
 # 模型 blob 在 HDD RAID1（~150MB/s），32B 冷載入約 7 分半。若不預熱：
@@ -13,8 +13,10 @@ set -uo pipefail
 
 OCR_URL=http://127.0.0.1:11434      # 好卡 0002：影像（表單 OCR、客戶圖片）
 AI_URL=http://127.0.0.1:11435       # 573：純文字（LINE 客服 AI）⚠ 絕不可送影像
-OCR_MODEL=qwen3-vl:32b-instruct
-AI_MODEL=qwen3:32b
+OCR_MODEL=qwen3.8-flash-next:125b-a6b-q4_K_M
+AI_MODEL=qwen3.8-flash-next:125b-a6b-q4_K_M
+ANA_URL=http://127.0.0.1:11436      # 5717（水冷）：分析（IG、台股、Telegram）
+ANA_MODEL=qwen3.8-flash-next:125b-a6b-q4_K_M
 LOG=/mnt/raid1/monitoring/ollama_warmup.log
 
 log() { echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
@@ -47,7 +49,10 @@ warm "OCR/好卡" "$OCR_URL" "$OCR_MODEL" &
 p1=$!
 warm "客服AI/573" "$AI_URL" "$AI_MODEL" &
 p2=$!
+warm "分析/5717" "$ANA_URL" "$ANA_MODEL" &
+p3=$!
 wait $p1; r1=$?
 wait $p2; r2=$?
-log "── 預熱結束（OCR=$r1 AI=$r2）──"
-exit $(( r1 || r2 ))
+wait $p3; r3=$?
+log "── 預熱結束（OCR=$r1 AI=$r2 分析=$r3）──"
+exit $(( r1 || r2 || r3 ))
