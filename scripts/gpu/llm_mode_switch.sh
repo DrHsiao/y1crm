@@ -53,8 +53,7 @@ RULES=(
   "/home/john/aoi/led_count.py|s/^VLM_MODEL = \"$(e $FR_OCR)\"/VLM_MODEL = \"$TO_OCR\"/"
   "/home/john/aoi/led_count.py|s/^LLM_MODEL = \"$(e $FR_AI)\"/LLM_MODEL = \"$TO_AI\"/"
   "/home/john/aoi/map/verify_vlm.py|s/\"MAP_VLM_MODEL\", \"$(e $FR_OCR)\"/\"MAP_VLM_MODEL\", \"$TO_OCR\"/"
-  "/home/john/ig/conf/ai_analysts.json|s/\"local_model\": \"$(e $FR_OCR)\"/\"local_model\": \"$TO_OCR\"/"
-  "/home/john/ig/scripts/ai_analysts.py|s/c.get(\"local_model\", \"$(e $FR_OCR)\")/c.get(\"local_model\", \"$TO_OCR\")/"
+  # （2026-11-17 拿掉 IG ai_analysts 兩條：IG 專案封存，john「把y1crm那幾行拿掉」）
 )
 bad=0
 for r in "${RULES[@]}"; do

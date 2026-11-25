@@ -15,10 +15,12 @@ John 2026-11-08：「本機 AI 建立 FB 貼文……先從貼文開始，每天
 ＞官網文章或工具。
 
 ⚠ 本機 AI＝config.AI（573 那張卡，純文字），**永不帶 images**。和 LINE 客服共用同一個常駐模型，
-  所以排程放在開店前（config [social] draft_hour），一則寫完再寫下一則。
+  所以排程放在開店前（config [social] draft_at，11-15 起 08:10，白天模型就緒才寫），一則寫完再寫下一則。
 ⚠ 新聞來自外部 RSS：標題、摘要只當題材交給本機模型，請它用自己的話寫；發文附原文連結。
 ⚠ 發佈前的檢查和官網分享到粉專相同（價格擋、療效提醒），另外擋【】待填處、提醒品牌與促銷字眼；
   自動發佈只發「完全沒有錯誤和提醒」的。
+John 2026-11-15：週六日不寫不發（skip_weekdays）；沒有合適新聞的那天少一則；寫完由本機 AI 和最近 90 天比對，
+重複的換題重寫，沒通過查重的不自動發（見「查重」一節）。
 配圖（api/post_art.py）：寫好就從圖庫挑一張真實照片；有圖的發成相片貼文（連結寫進文字），同步專欄時當封面。
 """
 from __future__ import annotations
@@ -53,7 +55,7 @@ CATEGORIES = {
     "ask": "互動提問", "season": "節日季節", "web": "官網文章", "tool": "官網工具", "own": "自己出題",
 }
 STORE_TAG = "#睿聲助聽器中正店"      # 粉專舊貼文一直用的店名標籤
-USED_DAYS = 60                         # 用過的題目、新聞、官網文章，這幾天內不再出
+USED_DAYS = 90                         # 用過的題目、新聞、官網文章，這幾天內不再出（和 DUP_DAYS 一致）
 PENDING_DAYS = 14                      # 沒處理的草稿只列最近這幾天
 NEWS_FRESH_DAYS = 3
 
@@ -76,13 +78,14 @@ class Topic(NamedTuple):
     seed: str
     path: str = ""                 # 官網工具的路徑（附連結）
     months: Tuple[int, ...] = ()   # 只在這些月份出（季節題）
+    hot: bool = False              # 群眾反應好的題型：同類別裡沒用過的先出（跟著人流走）
 
 
 TOPICS: Tuple[Topic, ...] = (
     # 保養小教室（內容以 ai_chat.KNOWLEDGE 為準）
     Topic("care-dry", "care", "每天睡前把助聽器放進乾燥盒；電池式的要把電池門打開"),
     Topic("care-wax", "care", "耳垢擋板和出聲孔要定期檢查：「沒聲音、變小聲」最常見的原因就是被耳垢堵住"),
-    Topic("care-water", "care", "不小心沾到水或流汗受潮：取出電池、擦乾、放乾燥盒，不要用吹風機或微波爐烘"),
+    Topic("care-water", "care", "不小心沾到水或流汗受潮：取出電池、擦乾、放乾燥盒，不要用吹風機或其他家用電器處理"),
     Topic("care-heat", "care", "高溫是助聽器的敵人：不要放在車內、吹風機或烘碗機旁邊"),
     Topic("care-battery", "care", "鋅空電池撕開貼紙後先放 1 分鐘再裝上；長時間不用要把電池取出，避免漏液"),
     Topic("care-charge", "care", "充電式助聽器的好習慣：每晚放回充電盒，充電接點保持乾燥清潔"),
@@ -97,7 +100,21 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("care-sweat", "care", "夏天流汗多，汗水會跑進助聽器：運動後擦乾，晚上一定要除濕；戲水、泡溫泉前先拿下來",
           months=(6, 7, 8, 9)),
     # 聽力保健
-    Topic("hl-earbuds", "health", "戴耳機的音量習慣：很多專家建議音量不超過六成、聽一小時讓耳朵休息一下"),
+    # John 2026-11-22：#50「追劇音量不知不覺轉大？」（年輕人戴耳機的近照）瀏覽、心情最多 →「這種類型的主題搭配這種風格的
+    # 模特能抓到群眾，就儘量跟著人流走」→ 耳機／3C／年輕人題目設 hot（配圖：圖庫裡同一位模特兒的照片會被耳機等標籤挑到）
+    Topic("hl-earbuds", "health", "戴耳機的音量習慣：很多專家建議音量不超過六成、聽一小時讓耳朵休息一下", hot=True),
+    Topic("hl-commute", "health", "搭捷運、公車通勤戴耳機：車廂越吵，音量就不知不覺越開越大；可以選降噪耳機，用比較小的音量"
+          "也聽得清楚，下車後讓耳朵休息一下", hot=True),
+    Topic("hl-online", "health", "線上課程、視訊會議一整天戴耳機：音量開到聽得清楚就好，每隔一段時間摘下來讓耳朵休息，"
+          "不用一直戴著", hot=True),
+    Topic("hl-sleepbuds", "health", "戴著耳機聽音樂、追劇睡著：耳朵整晚悶著、聲音也一直開著；可以設定定時關閉，"
+          "或改用小音量的喇叭", hot=True),
+    Topic("hl-game", "health", "打電動、看直播戴耳機：爆炸聲、尖叫聲常常突然很大聲，先把音量調小再戴上，不要越玩越大聲",
+          hot=True),
+    Topic("hl-young", "health", "年輕人也要保護聽力：長時間大音量聽耳機，聽力可能慢慢受損，噪音造成的聽力損傷通常回不來；"
+          "提醒家裡的孩子和年輕人", hot=True),
+    Topic("hl-workout", "health", "運動時戴耳機：健身房的音樂本來就很大聲，耳機再開大，耳朵負擔更重；音量夠聽到節奏就好",
+          hot=True),
     Topic("hl-noise", "health", "工地、KTV、放鞭炮、看演唱會等很吵的地方，用耳塞保護耳朵"),
     Topic("hl-qtip", "health", "掏耳朵的迷思：棉花棒可能把耳垢推得更深；耳朵不舒服或塞住，請找耳鼻喉科處理"),
     Topic("hl-signs", "health", "聽力可能在變化的生活小徵兆：常請人重複、電視越開越大聲、聚餐聽不清楚；"
@@ -124,6 +141,7 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("ask-tip", "ask", "問大家：你和家裡長輩溝通，有什麼好用的小撇步？"),
     Topic("ask-noise", "ask", "問大家：出去吃飯，最怕哪一種吵？"),
     Topic("ask-myth", "ask", "是非題：用棉花棒每天掏耳朵比較乾淨，對不對？請大家在留言猜，答案晚點公布"),
+    Topic("ask-buds", "ask", "問大家：你平常戴耳機聽音樂、追劇，音量大概開到幾格？", hot=True),
     # 官網工具（附連結）
     Topic("tool-test", "tool", "官網的「線上聽力小測驗」：戴耳機在安靜的地方做，幾分鐘就好；只是自我檢測、不是診斷，"
           "結果僅供參考", path="/hearing-test"),
@@ -295,6 +313,65 @@ def pick_news(items: Iterable[Dict[str, Any]], used: Set[str],
     return [it for _, _, it in ok]
 
 
+# 相關性把關（John 2026-11-13：「這種太難硬扯進來的以後不要，請本機 AI 確實遵守」，起因是
+# 「宜蘭高齡園區 7 度流標」被硬扯成溝通小提醒）：關鍵字分數只看字面，寫之前再請本機 AI 判斷能不能自然連到聽力，
+# 不到 NEWS_FIT_MIN 的跳過、換下一則；看了 NEWS_FIT_TRIES 則都不行就今天不寫新聞（改寫題庫）。
+NEWS_FIT_MIN = 4
+NEWS_FIT_TRIES = 15
+NEWS_FIT_PROMPT = """你是助聽器門市粉專的編輯，讀者是長輩和家屬。判斷下面這則新聞，能不能「自然、直接」寫成一則跟聽力、耳朵、助聽器，或和聽力不好的長輩溝通有關的貼文。
+
+評分 1～5：
+5＝新聞本身就在講聽力、聽損、耳朵、耳鳴、噪音、助聽器
+4＝新聞講的是長輩或照顧者的日常（就醫、看診、和家人或醫護溝通、天氣潮濕或溫差），讀者一看就懂和聽力照顧的關係，一句話就連得上
+3＝要繞一圈才說得通
+2＝只是剛好出現「長輩」「高齡」這類字眼，內容是政策、招商、工程、建設、經費、統計、產業
+1＝完全無關
+
+寧可嚴格：拿不準就給 3 以下。
+
+另外判斷「重複」：粉專最近已經寫過下面這些新聞。這則如果和其中一則是同一件事、同一類題材、或寫出來的提醒會一樣（例如都在講擤鼻涕傷耳朵、都是降溫要注意助聽器受潮），repeat 填 true：
+{recent}
+
+只回 JSON：{"score": 整數, "repeat": true 或 false, "reason": "一句話理由"}
+
+新聞標題：{title}
+新聞摘要：{desc}"""
+NEWS_REPEAT_DAYS = 14
+
+
+def recent_news_topics(cur, day: date) -> List[str]:
+    """最近 NEWS_REPEAT_DAYS 天寫過的新聞題目（不含丟掉的），給把關判斷是不是重複的題材。"""
+    cur.execute("SELECT topic FROM fb_post_drafts WHERE category='news' AND status<>'discarded' AND day >= %s "
+                "ORDER BY day DESC LIMIT 30", (day - timedelta(days=NEWS_REPEAT_DAYS),))
+    return [r["topic"] for r in cur.fetchall() if r.get("topic")]
+
+
+def news_fit(it: Dict[str, Any], recent: Sequence[str] = (), timeout: float = 120) -> Tuple[int, str]:
+    """本機 AI 判斷這則新聞和聽力的關聯（1～5 分，理由）。判斷失敗當 0 分（寧可不寫）。"""
+    prompt = (NEWS_FIT_PROMPT.replace("{recent}", "\n".join(f"・{t}" for t in recent) or "（沒有）")
+              .replace("{title}", it["title"]).replace("{desc}", it.get("desc") or "（無）"))
+    try:
+        raw = _chat([{"role": "user", "content": prompt}], timeout, json_mode=True, temperature=0.0, num_predict=200)
+        d = json.loads(raw)
+        score, why = int(d.get("score") or 0), str(d.get("reason") or "")[:100]
+        if d.get("repeat") is not False:        # 和最近寫過的重複（或沒答）＝不過關，由程式判定、不靠模型自己扣分
+            score, why = min(score, NEWS_FIT_MIN - 1), "重複：" + why
+        return score, why
+    except Exception as e:  # noqa: BLE001
+        return 0, f"判斷失敗：{e}"
+
+
+def fit_news(news: Sequence[Dict[str, Any]], recent: Sequence[str] = (),
+             tries: int = NEWS_FIT_TRIES) -> List[Dict[str, Any]]:
+    """依序請本機 AI 把關，回 [第一則夠相關、又不和最近重複的]；都不行就回 []（plan／single_spec 會改寫別的類別）。"""
+    for it in list(news)[:tries]:
+        score, why = news_fit(it, recent)
+        log.info("新聞把關 %d 分%s：%s（%s）", score, "" if score >= NEWS_FIT_MIN else " → 跳過", it["title"][:40], why)
+        if score >= NEWS_FIT_MIN:
+            return [it]
+    return []
+
+
 def fetch_news(feeds: Sequence[Tuple[str, str]] = NEWS_FEEDS) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for source, url in feeds:
@@ -324,12 +401,15 @@ def _spec(cat: str, key: str, topic: str, brief: str, link: Optional[str] = None
 
 
 def topic_spec(cat: str, day: date, used: Set[str], rng: random.Random,
-               site: str = "") -> Optional[Dict[str, Any]]:
+               site: str = "", fresh_only: bool = False) -> Optional[Dict[str, Any]]:
+    """fresh_only：只挑最近 USED_DAYS 天沒用過的（每日排程用；用完就回 None，當天少一則）。"""
     pool = [t for t in TOPICS if t.cat == cat and (not t.months or day.month in t.months)]
     fresh = [t for t in pool if t.key not in used]
+    if fresh_only:
+        pool = fresh
     if not (fresh or pool):
         return None
-    t = rng.choice(fresh or pool)
+    t = rng.choice([x for x in fresh if x.hot] or fresh or pool)     # 群眾反應好的題型（hot）先出
     link = f"{site.rstrip('/')}{t.path}" if t.path and site else None
     return _spec(cat, t.key, topic_title(t.seed), f"題材：{t.seed}", link=link)
 
@@ -359,7 +439,7 @@ def rotation(day: date) -> List[str]:
 
 def plan(day: date, n: int, used: Set[str], news: Sequence[Dict[str, Any]] = (),
          web_items: Sequence[Dict[str, Any]] = (), site: str = "",
-         rng: Optional[random.Random] = None) -> List[Dict[str, Any]]:
+         rng: Optional[random.Random] = None, fresh_only: bool = False) -> List[Dict[str, Any]]:
     """這一天要寫哪幾則（純函式）：節日＞新聞＞題庫＞官網文章或工具＞其他題庫類別。"""
     rng = rng or random.Random(day.toordinal())
     out: List[Dict[str, Any]] = []
@@ -371,14 +451,25 @@ def plan(day: date, n: int, used: Set[str], news: Sequence[Dict[str, Any]] = (),
     add(event_spec(day, used))
     add(news_spec(news[0]) if news else None)
     cats = rotation(day)
-    add(topic_spec(cats[0], day, used, rng, site))
-    add(web_spec(web_items, used) or topic_spec("tool", day, used, rng, site))
+    add(topic_spec(cats[0], day, used, rng, site, fresh_only))
+    add(web_spec(web_items, used) or topic_spec("tool", day, used, rng, site, fresh_only))
     for c in cats[1:]:
         if len(out) >= n:
             break
         if all(x["category"] != c for x in out):
-            add(topic_spec(c, day, used, rng, site))
+            add(topic_spec(c, day, used, rng, site, fresh_only))
     return out
+
+
+def daily_count(n: int, news_on: bool, news: Sequence[Dict[str, Any]]) -> int:
+    """John 2026-11-15：「如果沒有生活或聽力相關新聞可出，當天就減少數量」→ 新聞那一格不拿題庫補。"""
+    return max(0, n - 1) if news_on and not news else n
+
+
+def post_day(d: date) -> bool:
+    """John 2026-11-15：「星期六、星期日不發粉專文，移到周一發佈」→ 這幾天不寫也不自動發。"""
+    skip = _cfg("skip_weekdays", [5, 6])          # Python weekday：5＝週六、6＝週日
+    return d.weekday() not in {int(x) for x in (skip or [])}
 
 
 def single_spec(cat: str, day: date, used: Set[str], news: Sequence[Dict[str, Any]] = (),
@@ -405,7 +496,8 @@ CAT_GUIDE = {
             "新聞內容只能用下面寫的，不可以補充細節或數字，用自己的話說，開頭簡短帶到新聞即可，"
             "可以寫「根據{source}報導」。"
             "和聽力的連結只從生活面切入：陪長輩出門辦事、和醫護或家人溝通、助聽器的日常照顧；"
-            "不要推測新聞裡的事會讓身體或耳朵出現什麼狀況。",
+            "不要推測新聞裡的事會讓身體或耳朵出現什麼狀況。"
+            "連結要自然：讀者一看就懂為什麼從這則新聞講到聽力，不要硬扯。",
     "care": "題材是助聽器的日常保養，內容以門市知識為準。",
     "health": "題材是聽力保健。講到身體或聽力狀況，一律建議找耳鼻喉科醫師或聽力專業人員評估；"
               "寫到突然聽不到，請讀者儘快看耳鼻喉科。",
@@ -566,14 +658,27 @@ def column_errors(r: Dict[str, Any]) -> List[str]:
 
 
 # ── 本機模型 ─────────────────────────────────────────────────
+# 思考：John 2026-11-13「預製做、沒有即時性的工作，都用高度思考」→ 每日排程（run_daily）這條執行緒裡
+# 的所有呼叫（新聞把關、正文、官網關鍵字、圖卡標題）都開 [social] draft_think（預設 "high"）；
+# 店員按「多寫一則」「重寫」有人在等，維持不思考。思考會吃 num_predict，開的時候另外加 THINK_BUDGET。
+# num_ctx 一律 8192：和客服／OCR 共用同一個 ollama，不同 ctx 會整顆重載（11-13 實測停了 14 分鐘）。
+THINK_BUDGET = 3000
+_tls = threading.local()
+
+
+def _think() -> Any:
+    return getattr(_tls, "think", False) or False
+
 
 def _chat(messages: List[Dict[str, str]], timeout: float, json_mode: bool = False,
           temperature: float = 0.7, num_predict: int = 700) -> str:
     """⚠ 純文字（config.AI＝573 那張卡），永不帶 images。"""
+    think = _think()
     payload = {
         "model": config.AI.get("model"), "messages": messages, "stream": False,
-        "think": False, "keep_alive": -1,
-        "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": 8192},
+        "think": think, "keep_alive": -1,
+        "options": {"temperature": temperature, "num_predict": num_predict + (THINK_BUDGET if think else 0),
+                    "num_ctx": 8192},
     }
     if json_mode:
         payload["format"] = "json"
@@ -615,7 +720,7 @@ def write(spec: Dict[str, Any], store: Dict[str, Any], site: str = "",
         log.warning("官網版標題、關鍵字沒擬出來：%s", e)
         seo = clean_seo({}, spec["category"], text)
     return {"message": text, "seo": seo, "web_sync": spec["category"] in SYNC_DEFAULT,
-            "meta": f"{config.AI.get('model')} {time.time() - t0:.0f}s"}
+            "meta": f"{config.AI.get('model')}{' 高度思考' if _think() else ''} {time.time() - t0:.0f}s"}
 
 
 # ── 同步到官網「聽力專欄」────────────────────────────────────
@@ -815,12 +920,14 @@ def site_url(cur) -> str:
 
 
 def web_items(cur, site: str) -> List[Dict[str, Any]]:
-    """還沒分享過粉專的官網文章（聽力專欄、使用小教室），新的在前。"""
+    """還沒分享過粉專的官網文章（聽力專欄、使用小教室），新的在前。
+    粉專貼文同步過去的專欄文章不算（2026-11-15 發現 #21/#24/#30/#33/#36 都是把前一天的貼文再導讀一次）。"""
     try:
         cur.execute("SELECT w.id, w.kind, w.slug, w.title, w.summary, LEFT(w.body_md, 300) AS excerpt "
                     "FROM y1web.web_posts w WHERE w.kind IN ('article','care') AND w.status='published' "
                     "AND (w.publish_at IS NULL OR w.publish_at <= NOW()) "
                     "AND NOT EXISTS (SELECT 1 FROM fb_posts p WHERE p.web_post_id=w.id AND p.status='sent') "
+                    "AND NOT EXISTS (SELECT 1 FROM fb_post_drafts d WHERE d.web_article_id=w.id) "
                     "ORDER BY COALESCE(w.publish_at, w.updated_at) DESC, w.id DESC")
         rows = cur.fetchall()
     except pymysql.MySQLError:
@@ -833,23 +940,258 @@ def web_items(cur, site: str) -> List[Dict[str, Any]]:
     return out
 
 
-def insert(cur, day: date, spec: Dict[str, Any], res: Dict[str, Any], by: Optional[str]) -> int:
-    """by＝None 是每日排程寫的：預設勾選（到時間沒取消就自動發）；管理者自己按「多寫一則」的不預設勾。"""
+def insert(cur, day: date, spec: Dict[str, Any], res: Dict[str, Any], by: Optional[str],
+           picked: Optional[bool] = None, error: Optional[str] = None) -> int:
+    """by＝None 是每日排程寫的：預設勾選（到時間沒取消就自動發）；管理者自己按「多寫一則」的不預設勾。
+    picked／error：查重沒做完的，不勾、把原因寫進 error 給人看。"""
     cur.execute("INSERT INTO fb_post_drafts (day, category, topic_key, topic, brief, link, web_post_id, "
-                "source_name, source_url, message, seo, web_sync, picked, meta, created_by) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "source_name, source_url, message, seo, web_sync, picked, meta, error, created_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (day, spec["category"], spec["topic_key"], spec["topic"], spec["brief"][:2000],
                  spec.get("link"), spec.get("web_post_id"), spec.get("source_name"), spec.get("source_url"),
                  res["message"], json.dumps(res["seo"], ensure_ascii=False), int(res["web_sync"]),
-                 int(by is None), res["meta"][:255], by))
+                 int(by is None if picked is None else picked), res["meta"][:255],
+                 error[:255] if error else None, by))
     return cur.lastrowid
+
+
+# ── 查重（John 2026-11-15：「生成後檢查 60 日（3 個月內）重複的內容請換掉，請本機 AI 確實做到」）──
+#   週末不發之後，60 個發文日≈3 個月 → 往回看 DUP_DAYS＝90 天（已發、排好要發的草稿＋官網直接分享到粉專的）。
+#   兩關：① 程式擋：同題目、同一篇官網文章、同一則新聞、字面幾乎一樣；② 本機 AI 逐批比對主題和主要提醒。
+#   AI 一定要明確回 repeat=false 才算過（沒答、格式不對都不算）；判斷不出來的不自動發、寫原因給人看。
+#   重複的就換題重寫，每一格最多換 DUP_TRIES 次，換不到就當天少一則。
+#   過關的在 meta 記 DUP_MARK；自動發佈只發有這個記號的（auto_status）。
+DUP_DAYS = 90
+DUP_CHUNK = 30               # 一次給 AI 看幾則舊貼文（num_ctx 8192＋高度思考要留空間）
+DUP_TRIES = 3
+DUP_SIM_HARD = 0.5           # 字面相似度（兩字一組的重疊比例）到這裡，不用問 AI 就算重複
+DUP_MARK = "查重✓"
+NEWS_REPLACE_TRIES = 5
+DUP_PROMPT = """你是助聽器門市粉專的編輯。粉專不想讓讀者覺得「這個前陣子才講過」。
+下面是一則準備要發的新貼文，以及粉專最近三個月已經發過、或已經排好要發的貼文（編號、日期、類別、標題｜開頭）。
+
+請判斷新貼文是不是和其中任何一則「重複」。重複＝讀者讀完會覺得「這個前陣子才講過」，包括：
+- 主題一樣，或給讀者的主要提醒一樣。換句話說、換個季節、換個開頭、從新聞或官網文章切入都算。
+- 新貼文的主軸建議，在某一則舊貼文裡已經是重點之一（例如舊貼文列了三個建議，其中一個就是新貼文要講的）。
+- 同一個生活場景（例如家族聚餐、講電話、看電視、受潮）又在給類似的建議。
+  例：「助聽器受潮怎麼辦」和「不小心沾到水或流汗受潮」＝重複；「掏耳朵的迷思」和「耳垢清理誤區」＝重複；
+  「家族聚餐選位子（其中一點是大家輪流講）」和「聚餐時一次請一個人說話」＝重複。
+不重複＝新貼文的主軸在舊貼文裡沒講過，只是順帶提到常見做法（放乾燥盒、面對面說話、歡迎來門市聊聊）。
+  例：「每晚把助聽器放進乾燥盒」和「出聲孔被耳垢堵住會沒聲音」＝不重複。
+拿不準就算重複。
+
+只回 JSON：{"repeat": true 或 false, "same_as": "重複的那則編號，例如 #34；不重複填空字串", "reason": "一句話理由"}
+
+【新貼文】
+@NEW@
+
+【最近的貼文】
+@LIST@"""
+
+
+def _plain_body(message: str) -> str:
+    return re.sub(r"[\W_]+", "", strip_extras(message or ""))
+
+
+def text_sim(a: str, b: str) -> float:
+    """兩則貼文本文的字面相似度：兩字一組的重疊比例（Jaccard），0～1。"""
+    x, y = _plain_body(a), _plain_body(b)
+    A, B = {x[i:i + 2] for i in range(len(x) - 1)}, {y[i:i + 2] for i in range(len(y) - 1)}
+    return len(A & B) / len(A | B) if A and B else 0.0
+
+
+def dup_history(cur, day: date, exclude: Iterable[Any] = ()) -> List[Dict[str, Any]]:
+    """最近 DUP_DAYS 天的貼文：已發的、還沒發但排在今天以後的草稿，加上官網管理直接分享到粉專的。新的在前。"""
+    ex = {str(x) for x in exclude}
+    since = day - timedelta(days=DUP_DAYS)
+    cur.execute("SELECT id, day, category, topic, topic_key, web_post_id, source_url, message FROM fb_post_drafts "
+                "WHERE day >= %s AND (status IN ('published','dev') OR (status='new' AND day >= %s)) "
+                "ORDER BY day DESC, id DESC", (since, day))
+    rows = [r for r in cur.fetchall() if str(r["id"]) not in ex]
+    seen = {r["message"] for r in rows}
+    try:
+        cur.execute("SELECT id, web_post_id, message, created_at FROM fb_posts WHERE status='sent' AND created_at >= %s "
+                    "ORDER BY id DESC", (since,))
+        for r in cur.fetchall():
+            if r["message"] in seen or f"S{r['id']}" in ex:
+                continue                     # 草稿發的會在 fb_posts 再記一筆，不重複列
+            first = next((x.strip() for x in strip_extras(r["message"]).split("\n") if x.strip()), "")
+            rows.append({"id": f"S{r['id']}", "day": r["created_at"].date(), "category": "share", "topic": first[:40],
+                         "topic_key": None, "web_post_id": r["web_post_id"], "source_url": None,
+                         "message": r["message"]})
+    except pymysql.MySQLError:
+        log.warning("查重：讀不到官網分享紀錄，只比對草稿")
+    return rows
+
+
+def _gist(r: Dict[str, Any]) -> str:
+    body = strip_extras(r.get("message") or "").replace("\n", " ")
+    cat = CATEGORIES.get(r.get("category"), "官網分享" if r.get("category") == "share" else r.get("category") or "")
+    rid = r["id"] if str(r["id"]).startswith("S") else f"#{r['id']}"
+    return f"{rid}（{r['day']:%m-%d}，{cat}）{r.get('topic') or ''}｜{body[:70]}"
+
+
+def dup_check(spec: Dict[str, Any], message: str, history: Sequence[Dict[str, Any]],
+              timeout: float = 240) -> Tuple[Optional[bool], str]:
+    """新貼文和最近的貼文重不重複：回 (True 重複／False 不重複／None 本機 AI 判斷不出來, 理由)。"""
+    for r in history:
+        rid = r["id"] if str(r["id"]).startswith("S") else f"#{r['id']}"
+        if spec.get("topic_key") and r.get("topic_key") == spec["topic_key"]:
+            return True, f"和 {rid} 是同一個題目"
+        if spec.get("web_post_id") and r.get("web_post_id") == spec["web_post_id"]:
+            return True, f"和 {rid} 導讀同一篇官網文章"
+        if spec.get("source_url") and r.get("source_url") == spec["source_url"]:
+            return True, f"和 {rid} 是同一則新聞"
+        sim = text_sim(message, r.get("message") or "")
+        if sim >= DUP_SIM_HARD:
+            return True, f"和 {rid} 的文字幾乎一樣（相似度 {sim:.2f}）"
+    if not history:
+        return False, "最近沒有貼文可比"
+    new = f"類別：{CATEGORIES.get(spec.get('category'), spec.get('category'))}\n標題：{spec.get('topic') or ''}\n" \
+          f"內文：{strip_extras(message)[:600]}"
+    for i in range(0, len(history), DUP_CHUNK):
+        chunk = history[i:i + DUP_CHUNK]
+        ids = {str(r["id"]) for r in chunk}
+        prompt = DUP_PROMPT.replace("@NEW@", new).replace("@LIST@", "\n".join(_gist(r) for r in chunk))
+        d, err = None, ""
+        for _ in range(3):
+            try:
+                d = json.loads(_chat([{"role": "user", "content": prompt}], timeout, json_mode=True,
+                                     temperature=0.0, num_predict=300))
+                if not isinstance(d, dict) or not isinstance(d.get("repeat"), bool):
+                    raise ValueError(f"沒有明確回答 repeat：{str(d)[:80]}")
+                break
+            except Exception as e:  # noqa: BLE001
+                d, err = None, str(e)[:120]
+        if d is None:
+            return None, f"本機 AI 查重沒有回答（{err}）"
+        if d["repeat"]:
+            same = str(d.get("same_as") or "").strip().lstrip("#")
+            ref = (f"#{same}" if not same.startswith("S") else same) if same in ids else "最近的貼文"
+            return True, f"和 {ref} 重複：{str(d.get('reason') or '')[:80]}"
+    return False, f"和最近 {DUP_DAYS} 天的 {len(history)} 則都不重複"
+
+
+def replacement(spec: Dict[str, Any], day: date, taken: Set[str], webs: Sequence[Dict[str, Any]],
+                news_left: Sequence[Dict[str, Any]], topics: Sequence[str], site: str,
+                cats_today: Set[str], rng: random.Random) -> Optional[Dict[str, Any]]:
+    """重複了換哪一題：新聞換下一則夠相關的（沒有就少一則）；官網文章換下一篇或官網工具；
+    題庫先換同類別、再換輪到的其他類別（都只挑最近沒用過的）；節日、自己出題不換。"""
+    cat = spec["category"]
+    if cat == "news":
+        got = fit_news([x for x in news_left if news_key(x["link"]) not in taken], topics, tries=NEWS_REPLACE_TRIES)
+        return news_spec(got[0]) if got else None
+    if cat in ("season", "own"):
+        return None
+    if cat in ("web", "tool"):
+        return web_spec(webs, taken) or topic_spec("tool", day, taken, rng, site, fresh_only=True)
+    for c in [cat] + [c for c in rotation(day) if c not in cats_today]:
+        s = topic_spec(c, day, taken, rng, site, fresh_only=True)
+        if s:
+            return s
+    return None
+
+
+def write_checked(day: date, spec: Dict[str, Any], store: Dict[str, Any], site: str, taken: Set[str],
+                  webs: Sequence[Dict[str, Any]] = (), news_left: Sequence[Dict[str, Any]] = (),
+                  topics: Sequence[str] = (), cats_today: Optional[Set[str]] = None,
+                  rng: Optional[random.Random] = None) -> Optional[int]:
+    """寫一則 → 查重 → 重複就換題重寫（最多 DUP_TRIES 次）。回新草稿 id；換不到回 None（當天少一則）。"""
+    cats_today = cats_today if cats_today is not None else set()
+    rng = rng or random.Random()
+    for attempt in range(DUP_TRIES + 1):
+        res = write(spec, store, site)
+        with _conn() as db, db.cursor() as cur:
+            history = dup_history(cur, day)
+        rep, why = dup_check(spec, res["message"], history)
+        taken.add(spec["topic_key"])
+        if spec.get("web_post_id"):
+            taken.add(f"web:{spec['web_post_id']}")
+        if rep is False:
+            res["meta"] = f"{res['meta']} {DUP_MARK}"
+            with _conn() as db, db.cursor() as cur:
+                did = insert(cur, day, spec, res, None)
+            log.info("粉專草稿 #%s 查重通過（%s %s）：%s", did, spec["category"], spec["topic_key"], why)
+            cats_today.add(spec["category"])
+            return did
+        if rep is None:                      # 判斷不出來：寫進去但不勾、不自動發，原因給人看
+            with _conn() as db, db.cursor() as cur:
+                did = insert(cur, day, spec, res, None, picked=False, error=f"沒有自動發：{why}")
+            log.warning("粉專草稿 #%s 查重沒做完，不自動發：%s", did, why)
+            cats_today.add(spec["category"])
+            return did
+        log.info("粉專草稿重複，換題（第 %d 次）：%s %s「%s」— %s", attempt + 1, spec["category"],
+                 spec["topic_key"], spec["topic"][:30], why)
+        nxt = replacement(spec, day, taken, webs, news_left, topics, site, cats_today, rng)
+        if nxt is None:
+            log.info("粉專草稿：%s 這一格換不到不重複的題目，當天少一則", spec["category"])
+            return None
+        spec = nxt
+    log.info("粉專草稿：換了 %d 次還是重複，當天少一則", DUP_TRIES)
+    return None
+
+
+def recheck_day(day: date) -> Dict[str, Any]:
+    """已經寫好、還沒發的每日草稿補做查重（例如週末移到週一的）：依編號順序比，重複的丟掉、換題重寫。"""
+    with _conn() as db, db.cursor() as cur:
+        cur.execute("SELECT * FROM fb_post_drafts WHERE day=%s AND status='new' AND created_by IS NULL ORDER BY id",
+                    (day,))
+        rows = cur.fetchall()
+        used, store, site = used_keys(cur, day), store_info(cur), site_url(cur)
+        webs = web_items(cur, site)
+    taken = set(used)
+    cats_today = {r["category"] for r in rows}
+    batch = [r["id"] for r in rows]
+    out: Dict[str, Any] = {"ok": [], "replaced": [], "dropped": [], "unknown": []}
+    for r in rows:
+        with _conn() as db, db.cursor() as cur:
+            history = dup_history(cur, day, exclude=[i for i in batch if i >= r["id"]])
+        rep, why = dup_check(r, r["message"], history)
+        if rep is False:
+            meta = r["meta"] or ""
+            with _conn() as db, db.cursor() as cur:
+                cur.execute("UPDATE fb_post_drafts SET meta=%s WHERE id=%s AND status='new'",
+                            ((meta if DUP_MARK in meta else f"{meta} {DUP_MARK}")[:255], r["id"]))
+            out["ok"].append((r["id"], why))
+            continue
+        if rep is None:
+            with _conn() as db, db.cursor() as cur:
+                cur.execute("UPDATE fb_post_drafts SET picked=0, error=%s WHERE id=%s AND status='new'",
+                            (f"沒有自動發：{why}"[:255], r["id"]))
+            out["unknown"].append((r["id"], why))
+            continue
+        with _conn() as db, db.cursor() as cur:
+            cur.execute("UPDATE fb_post_drafts SET status='discarded', picked=0, error=%s WHERE id=%s AND status='new'",
+                        (f"重複，已換題：{why}"[:255], r["id"]))
+        batch.remove(r["id"])
+        cats_today.discard(r["category"])
+        log.info("粉專草稿 #%s 重複、丟掉換題：%s", r["id"], why)
+        nxt = replacement(r, day, taken, webs, [], [], site, cats_today, random.Random())
+        new_id = write_checked(day, nxt, store, site, taken, webs, cats_today=cats_today) if nxt else None
+        (out["replaced"] if new_id else out["dropped"]).append((r["id"], new_id, why))
+    if out["replaced"]:
+        from api import post_art
+        try:
+            post_art.illustrate([x[1] for x in out["replaced"]], [], "每日自動")
+        except Exception:  # noqa: BLE001
+            log.exception("粉專草稿配圖失敗")
+    log.info("粉專草稿補查重 %s：%s", day, out)
+    return out
 
 
 _run_lock = threading.Lock()
 
 
 def run_daily(day: Optional[date] = None, n: Optional[int] = None) -> int:
-    """寫當天的草稿（每日排程）。當天已經寫過就不重寫。回寫了幾則。"""
+    """寫當天的草稿（每日排程）。當天已經寫過就不重寫。回寫了幾則。預製、沒人在等 → 開 draft_think。"""
+    _tls.think = _cfg("draft_think", "high") or False
+    try:
+        return _run_daily(day, n)
+    finally:
+        _tls.think = False
+
+
+def _run_daily(day: Optional[date], n: Optional[int]) -> int:
     day = day or date.today()
     n = int(n or _cfg("draft_count", 3))
     with _run_lock:
@@ -860,18 +1202,27 @@ def run_daily(day: Optional[date] = None, n: Optional[int] = None) -> int:
             used, recent = used_keys(cur, day), recent_sources(cur, day)
             store, site = store_info(cur), site_url(cur)
             webs = web_items(cur, site)
-        news = pick_news(fetch_news(), used, recent=recent) if _cfg("news", True) else []
-        specs = plan(day, n, used, news, webs, site)
+            topics = recent_news_topics(cur, day)
+        news_on = bool(_cfg("news", True))
+        pool = pick_news(fetch_news(), used, recent=recent) if news_on else []
+        news = fit_news(pool, topics) if news_on else []
+        news_left = pool[pool.index(news[0]) + 1:] if news else []
+        n_day = daily_count(n, news_on, news)
+        rng = random.Random(day.toordinal())
+        specs = plan(day, n_day, used, news, webs, site, rng=rng, fresh_only=True)
+        taken = set(used) | {s["topic_key"] for s in specs}
+        cats_today = {s["category"] for s in specs}
         ids: List[int] = []
         for spec in specs:
             try:
-                res = write(spec, store, site)
+                did = write_checked(day, spec, store, site, taken, webs, news_left, topics, cats_today, rng)
             except Exception as e:  # noqa: BLE001 — 一則失敗不影響其他
                 log.warning("粉專草稿寫失敗（%s %s）：%s", spec["category"], spec["topic_key"], e)
                 continue
-            with _conn() as db, db.cursor() as cur:
-                ids.append(insert(cur, day, spec, res, None))
-    log.info("粉專草稿：%s 寫了 %d／%d 則（新聞候選 %d、官網文章 %d）", day, len(ids), len(specs), len(news), len(webs))
+            if did:
+                ids.append(did)
+    log.info("粉專草稿：%s 寫了 %d／%d 則（%s；新聞候選 %d、官網文章 %d）", day, len(ids), len(specs),
+             "有新聞" if news else "沒有合適新聞，少一則" if news_on else "不寫新聞", len(news), len(webs))
     from api import post_art            # 每則從圖庫配一張真實照片；配不到照樣能發
     try:
         post_art.illustrate(ids, [], "每日自動")
@@ -890,15 +1241,16 @@ def write_one(cat: str, brief: str, by: str, link: Optional[str] = None) -> int:
         used, store, site = used_keys(cur, day), store_info(cur), site_url(cur)
         webs = web_items(cur, site) if cat == "web" else []
         recent = recent_sources(cur, day) if cat == "news" else {}
+        topics = recent_news_topics(cur, day) if cat == "news" else []
     if brief.strip():
         spec = own_spec(brief, link)
         if cat in OWN_AS:
             spec["category"] = cat          # 自己出題但指定類別：套那個類別的寫法
     else:
-        news = pick_news(fetch_news(), used, recent=recent) if cat == "news" else []
+        news = fit_news(pick_news(fetch_news(), used, recent=recent), topics) if cat == "news" else []
         spec = single_spec(cat, day, used, news, webs, site)
         if spec is None:
-            raise LookupError({"news": "現在沒有找到合適的新聞（和長輩、聽力、健康相關，而且最近三天的）。",
+            raise LookupError({"news": "現在沒有找到合適的新聞（要能自然連到聽力或長輩溝通，而且是最近三天的）。",
                                "season": "最近三天沒有節日。",
                                "web": "官網的專欄和小教室文章都已經分享過，或最近已經寫過。"}.get(cat, "這個類別沒有題目了。"))
     res = write(spec, store, site)
@@ -985,9 +1337,14 @@ def publish(ids: Sequence[int], force: bool, by: str) -> Dict[str, Any]:
                 post_art.ensure_stock(cur, r)       # 以前 AI 畫的換成真實照片
                 if r.get("image") and not r.get("card"):
                     r["card"] = post_art.make_card(cur, r["id"])
-                photo = photo_jpeg(r.get("card") or r.get("image"))      # 圖卡（照片＋大字標題），沒有就原照片
-                fid = (fb_page.publish_photo(photo_message(r["message"], r["link"], r["category"]), photo) if photo
-                       else fb_page.publish_post(r["message"], r["link"]))
+                album = _json(r.get("card_meta")).get("album")      # 多圖貼文（左右滑動）：card_meta.album＝官網 media 檔名清單
+                if album:
+                    photos = [p for p in (photo_jpeg(n) for n in album) if p]
+                    fid = fb_page.publish_photos(photo_message(r["message"], r["link"], r["category"]), photos)
+                else:
+                    photo = photo_jpeg(r.get("card") or r.get("image"))      # 圖卡（照片＋大字標題），沒有就原照片
+                    fid = (fb_page.publish_photo(photo_message(r["message"], r["link"], r["category"]), photo) if photo
+                           else fb_page.publish_post(r["message"], r["link"]))
             except fb_page.GraphError as e:
                 cur.execute("UPDATE fb_post_drafts SET error=%s WHERE id=%s", (str(e)[:255], r["id"]))
                 results.append({"id": r["id"], "status": "failed", "error": str(e)})
@@ -1041,6 +1398,8 @@ def auto_status(r: Dict[str, Any], now: Optional[datetime] = None, run: bool = F
         return False, "已取消勾選，不會自動發"
     if r["created_at"] > dl - timedelta(minutes=AUTO_REVIEW_MIN):
         return False, "太晚才寫好，不自動發，要發請手動"
+    if DUP_MARK not in (r.get("meta") or ""):
+        return False, "沒有做過重複檢查，不會自動發，請看過再手動發"
     e, w = check(r["message"])
     if r["web_sync"]:
         e += column_errors(r)
@@ -1064,31 +1423,80 @@ def auto_publish(now: Optional[datetime] = None) -> Dict[str, Any]:
 
 # ── 每日排程 ─────────────────────────────────────────────────
 _sched_started = False
+# John 2026-11-15：GPU 早上給影片工作室（平日 04:30～07:55），08:00 換回白天三卡 Flash-Next，08:10 才寫草稿；
+# 「flash-next 未就緒就先等」→ 看 night_mode.sh 寫的模式檔：night＝還是夜間 qwen 27b（或換回白天失敗）就先等，
+# 最晚等到 draft_wait_until（09:00），還沒好就先用夜間模型寫並通知 John，09:30 前寫好 10:30 才能自動發。
+LLM_MODE_FILE = "/run/llm_mode"
+NOTIFY = "/home/john/y1crm/scripts/ops/notify.py"
+
+
+def _at(day: date, hhmm: str, fallback: Tuple[int, int]) -> datetime:
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(hhmm or ""))
+    h, mi = (int(m.group(1)), int(m.group(2))) if m else fallback
+    return datetime.combine(day, datetime.min.time()).replace(hour=min(h, 23), minute=min(mi, 59))
+
+
+def draft_start(day: date) -> datetime:
+    """幾點開始寫：[social] draft_at（"08:10"）；沒設就用舊的 draft_hour 整點。"""
+    return _at(day, _cfg("draft_at", ""), (int(_cfg("draft_hour", 6)), 0))
+
+
+def draft_wait_until(day: date) -> datetime:
+    return _at(day, _cfg("draft_wait_until", "09:00"), (9, 0))
+
+
+def llm_day_ready() -> bool:
+    """白天三卡 Flash-Next 好了沒：模式檔是 night（夜班中、正在換回白天、或換回失敗用夜間模型撐著）就還沒。"""
+    try:
+        return open(LLM_MODE_FILE).read().strip() != "night"
+    except OSError:
+        return True                                  # 沒有模式檔＝從來沒進過夜班＝白天
+
+
+def _notify(text: str) -> None:
+    try:
+        import subprocess
+        subprocess.run(["/usr/bin/python3", NOTIFY, text], timeout=30, capture_output=True)
+    except Exception:  # noqa: BLE001
+        log.warning("通知送不出去：%s", text)
 
 
 def start_scheduler() -> None:
     """背景執行緒：每 60 秒看一次。
-    - 到 draft_hour 後寫當天的草稿（同一天只寫一次，失敗最多再試兩次）；
-    - 到 auto_publish 的時間，自動發還勾著的（同一天只跑一次；主機停機錯過的話當天 21 點前補）。"""
+    - 到 draft_start（[social] draft_at，預設 08:10）後寫當天的草稿（同一天只寫一次，失敗最多再試兩次）；
+      白天 Flash-Next 還沒就緒就先等，最晚等到 draft_wait_until（09:00），再不行就用夜間模型寫並通知；
+    - 到 auto_publish 的時間，自動發還勾著的（同一天只跑一次；主機停機錯過的話當天 21 點前補）；
+    - [social] skip_weekdays（預設週六、週日）整天不寫也不發，週一照常。"""
     global _sched_started
     if _sched_started or not _cfg("draft_enabled", True):
         return
     _sched_started = True
-    hour = int(_cfg("draft_hour", 6))
-
     def _loop() -> None:
         tries: Dict[date, int] = {}
         last_try = 0.0
         auto_done: Optional[date] = None
+        waiting: Optional[date] = None
         while True:
             try:
                 now = datetime.now()
                 d = now.date()
-                if now.hour >= hour and tries.get(d, 0) < 3 and time.time() - last_try > 900:
+                if not post_day(d):              # 週六日不寫、不自動發（John 2026-11-15）
+                    time.sleep(60)
+                    continue
+                if now >= draft_start(d) and tries.get(d, 0) < 3 and time.time() - last_try > 900:
                     with _conn() as db, db.cursor() as cur:
                         cur.execute("SELECT 1 FROM fb_post_drafts WHERE day=%s AND created_by IS NULL LIMIT 1", (d,))
                         done = cur.fetchone() is not None
-                    if not done:
+                    ready = llm_day_ready()
+                    if not done and not ready and now < draft_wait_until(d):
+                        if waiting != d:
+                            waiting = d
+                            log.info("粉專草稿：白天 Flash-Next 還沒就緒，先等（最晚等到 %s）", f"{draft_wait_until(d):%H:%M}")
+                    elif not done:
+                        if not ready:
+                            log.warning("粉專草稿：到 %s Flash-Next 還沒就緒，先用夜間模型寫", f"{draft_wait_until(d):%H:%M}")
+                            _notify(f"⚠️ 粉專草稿：到 {draft_wait_until(d):%H:%M} 白天 Flash-Next 還沒就緒，"
+                                    "先用夜間 qwen 27b 寫（請看 /mnt/raid1/monitoring/night_mode.log）")
                         tries[d] = tries.get(d, 0) + 1
                         last_try = time.time()
                         run_daily(d)
@@ -1102,5 +1510,6 @@ def start_scheduler() -> None:
 
     threading.Thread(target=_loop, daemon=True, name="fb-drafts").start()
     dl = auto_deadline(date.today())
-    log.info("粉專草稿排程已啟動（每天 %02d:00 後寫 %s 則；%s）", hour, _cfg("draft_count", 3),
+    log.info("粉專草稿排程已啟動（週一～五 %s 後寫 %s 則，Flash-Next 沒好就等到 %s；%s）",
+             f"{draft_start(date.today()):%H:%M}", _cfg("draft_count", 3), f"{draft_wait_until(date.today()):%H:%M}",
              f"{dl:%H:%M} 自動發還勾著的" if dl else "不自動發")

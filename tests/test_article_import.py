@@ -301,5 +301,30 @@ class Source(unittest.TestCase):
                 self.post(**bad)
 
 
+class Think(unittest.TestCase):
+    """John 2026-11-13：沒有即時性的工作都用高度思考 → 背景翻譯那條執行緒開思考，其他執行緒不受影響。"""
+
+    def test_background_import_thinks(self):
+        import threading
+        import time
+        seen, done = [], threading.Event()
+
+        def fake_build(*a, **k):
+            seen.append(fb_drafts._think())
+            done.set()
+            return {"id": 1}
+
+        with mock.patch.object(ai, "build", side_effect=fake_build), \
+                mock.patch.dict(ai.config.WEB, {"import_think": "high"}):
+            self.assertTrue(ai.start("https://example.com/a", None, "", "助聽器知識", False, "測試"))
+            self.assertTrue(done.wait(5))
+            for _ in range(100):
+                if not ai.status.get("running"):
+                    break
+                time.sleep(0.02)
+        self.assertEqual(seen, ["high"])
+        self.assertFalse(fb_drafts._think())                       # 主執行緒（客服、店員按的）維持不思考
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,7 +28,8 @@
       "隱形",
       "通用"
     ],
-    "file": "f86e09baf4e387eb.webp"
+    "file": "f86e09baf4e387eb.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "us-dn6KOZXmISw",
@@ -86,7 +87,8 @@
       "門市",
       "專業"
     ],
-    "file": "81ce3ec91c7e6b46.webp"
+    "file": "81ce3ec91c7e6b46.webp",
+    "look": 1
   },
   {
     "id": "px-5206951",
@@ -240,9 +242,15 @@
       "試戴",
       "驗配",
       "選購",
-      "評估"
+      "評估",
+      "適應",
+      "剛開始",
+      "第一次",
+      "配戴",
+      "微調"
     ],
-    "file": "46a74eca43fa0907.webp"
+    "file": "46a74eca43fa0907.webp",
+    "look": 1
   },
   {
     "id": "us-zQlHjxx3vSU",
@@ -358,7 +366,8 @@
       "資格",
       "身心障礙"
     ],
-    "file": "5d7551a76e2f5f26.webp"
+    "file": "5d7551a76e2f5f26.webp",
+    "look": 1
   },
   {
     "id": "us-DB1sPXX07Zs",
@@ -380,7 +389,8 @@
       "樂活",
       "獨處"
     ],
-    "file": "b3e7ffdec93dc538.webp"
+    "file": "b3e7ffdec93dc538.webp",
+    "look": 1
   },
   {
     "id": "px-8055092",
@@ -427,7 +437,8 @@
       "說話",
       "通用"
     ],
-    "file": "aa6dc0ee5b34782c.webp"
+    "file": "aa6dc0ee5b34782c.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-5637528",
@@ -495,7 +506,8 @@
       "料理",
       "上菜"
     ],
-    "file": "bbab3776203bf9a3.webp"
+    "file": "bbab3776203bf9a3.webp",
+    "look": 1
   },
   {
     "id": "px-5693055",
@@ -540,7 +552,8 @@
       "節日",
       "團圓"
     ],
-    "file": "33c82245588004f9.webp"
+    "file": "33c82245588004f9.webp",
+    "look": 1
   },
   {
     "id": "px-5646514",
@@ -566,7 +579,8 @@
       "聚餐",
       "喜宴"
     ],
-    "file": "28f15b90bc7c565d.webp"
+    "file": "28f15b90bc7c565d.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-5637850",
@@ -610,7 +624,8 @@
       "關心",
       "另一半"
     ],
-    "file": "ca512daa685153fb.webp"
+    "file": "ca512daa685153fb.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-29244966",
@@ -634,7 +649,8 @@
       "心情",
       "想事情"
     ],
-    "file": "43c14b24f507bb2a.webp"
+    "file": "43c14b24f507bb2a.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-8949897",
@@ -661,7 +677,8 @@
       "疾管署",
       "診所"
     ],
-    "file": "e2622bd45e43fcbc.webp"
+    "file": "e2622bd45e43fcbc.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-7330149",
@@ -740,7 +757,8 @@
       "上網",
       "聽音樂"
     ],
-    "file": "dbd870ad4ed76eb0.webp"
+    "file": "dbd870ad4ed76eb0.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-8972500",
@@ -812,7 +830,8 @@
       "團圓",
       "晚餐"
     ],
-    "file": "b692d05460e1cd60.webp"
+    "file": "b692d05460e1cd60.webp",
+    "look": 1
   },
   {
     "id": "px-7363752",
@@ -836,7 +855,8 @@
       "餐桌",
       "吃飯"
     ],
-    "file": "9473a72b9e4df73e.webp"
+    "file": "9473a72b9e4df73e.webp",
+    "look": 1
   },
   {
     "id": "px-9016809",
@@ -860,7 +880,8 @@
       "除夕",
       "家族聚餐"
     ],
-    "file": "9178012823f9122b.webp"
+    "file": "9178012823f9122b.webp",
+    "look": 1
   },
   {
     "id": "px-35990341",
@@ -884,7 +905,8 @@
       "吵雜",
       "吃飯"
     ],
-    "file": "6903cf36fb1a9eb3.webp"
+    "file": "6903cf36fb1a9eb3.webp",
+    "look": 1
   },
   {
     "id": "px-39191057",
@@ -953,7 +975,8 @@
       "活動",
       "多人"
     ],
-    "file": "c5a20e45a5385cef.webp"
+    "file": "c5a20e45a5385cef.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-4567290",
@@ -977,7 +1000,8 @@
       "一次一個人",
       "換話題"
     ],
-    "file": "39bee7f7dee2c7e6.webp"
+    "file": "39bee7f7dee2c7e6.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-34197179",
@@ -1027,7 +1051,8 @@
       "吵雜",
       "通用"
     ],
-    "file": "54614a0a7e6c9a74.webp"
+    "file": "54614a0a7e6c9a74.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-10574520",
@@ -1050,7 +1075,8 @@
       "防疫",
       "流感"
     ],
-    "file": "9fbd2c8479d32734.webp"
+    "file": "9fbd2c8479d32734.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-5698234",
@@ -1097,7 +1123,8 @@
       "流感",
       "新冠"
     ],
-    "file": "2f4610f300b40921.webp"
+    "file": "2f4610f300b40921.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-3791664",
@@ -1145,7 +1172,8 @@
       "加好友",
       "幫爸媽"
     ],
-    "file": "dd304acf4c115e3f.webp"
+    "file": "dd304acf4c115e3f.webp",
+    "look": 1
   },
   {
     "id": "px-3768131",
@@ -1194,7 +1222,8 @@
       "颱風",
       "雨季"
     ],
-    "file": "941542c55749c93c.webp"
+    "file": "941542c55749c93c.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-7622373",
@@ -1244,7 +1273,8 @@
       "降溫",
       "出門"
     ],
-    "file": "6b829ee0644ace4c.webp"
+    "file": "6b829ee0644ace4c.webp",
+    "look": 1
   },
   {
     "id": "px-8940504",
@@ -1356,7 +1386,8 @@
       "搭飛機",
       "安檢"
     ],
-    "file": "47f6c61e8226ac4a.webp"
+    "file": "47f6c61e8226ac4a.webp",
+    "look": 1
   },
   {
     "id": "px-18807128",
@@ -1447,7 +1478,8 @@
       "拿去玩",
       "隨手放"
     ],
-    "file": "001dfc084ba4363d.webp"
+    "file": "001dfc084ba4363d.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-7140778",
@@ -1470,7 +1502,8 @@
       "年輕人",
       "通勤"
     ],
-    "file": "8cfa1243cc3a41a1.webp"
+    "file": "8cfa1243cc3a41a1.webp",
+    "look": 1
   },
   {
     "id": "px-5538620",
@@ -1493,7 +1526,8 @@
       "年輕人",
       "六成"
     ],
-    "file": "398a42262f784ee7.webp"
+    "file": "398a42262f784ee7.webp",
+    "look": 1
   },
   {
     "id": "px-39908040",
@@ -1538,7 +1572,8 @@
       "音量",
       "休息"
     ],
-    "file": "a82ddf80a510408a.webp"
+    "file": "a82ddf80a510408a.webp",
+    "look": 1
   },
   {
     "id": "px-8488000",
@@ -1694,7 +1729,8 @@
       "高頻",
       "請人重複"
     ],
-    "file": "8c876bfb79ef9cb7.webp"
+    "file": "8c876bfb79ef9cb7.webp",
+    "look": 1
   },
   {
     "id": "px-7983615",
@@ -1717,7 +1753,8 @@
       "耳機",
       "平板"
     ],
-    "file": "a64b4f0380312eb6.webp"
+    "file": "a64b4f0380312eb6.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-5231321",
@@ -1739,7 +1776,8 @@
       "手機",
       "戴耳機"
     ],
-    "file": "3a5131382e40f2cc.webp"
+    "file": "3a5131382e40f2cc.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-6148906",
@@ -1784,7 +1822,8 @@
       "耳朵痛",
       "中耳炎"
     ],
-    "file": "fe64f1bd310f111e.webp"
+    "file": "fe64f1bd310f111e.webp",
+    "look": 1
   },
   {
     "id": "px-39192358",
@@ -1808,7 +1847,8 @@
       "檢查原因",
       "第一步"
     ],
-    "file": "41ffcccf0fee34a7.webp"
+    "file": "41ffcccf0fee34a7.webp",
+    "look": 1
   },
   {
     "id": "px-39192354",
@@ -1831,7 +1871,8 @@
       "健康檢查",
       "失智"
     ],
-    "file": "ffb79fe4bee0e0e3.webp"
+    "file": "ffb79fe4bee0e0e3.webp",
+    "look": 1
   },
   {
     "id": "px-7345476",
@@ -1916,7 +1957,8 @@
       "聽損模擬",
       "陪"
     ],
-    "file": "a53a8088f3efd20c.webp"
+    "file": "a53a8088f3efd20c.webp",
+    "look": 1
   },
   {
     "id": "px-5698388",
@@ -1939,7 +1981,8 @@
       "線上",
       "測驗"
     ],
-    "file": "90f2bbcabdeb0a65.webp"
+    "file": "90f2bbcabdeb0a65.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-5698370",
@@ -1961,7 +2004,8 @@
       "線上",
       "視訊"
     ],
-    "file": "8b25066cdeced524.webp"
+    "file": "8b25066cdeced524.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-36485822",
@@ -1985,7 +2029,8 @@
       "習慣",
       "戴上"
     ],
-    "file": "0f3566590c16450a.webp"
+    "file": "0f3566590c16450a.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-9623514",
@@ -2161,7 +2206,8 @@
       "祖孫",
       "阿公"
     ],
-    "file": "b89e87d968eee8ec.webp"
+    "file": "b89e87d968eee8ec.webp",
+    "look": 1
   },
   {
     "id": "px-8298434",
@@ -2183,7 +2229,8 @@
       "阿公",
       "三代"
     ],
-    "file": "857672c303a183e0.webp"
+    "file": "857672c303a183e0.webp",
+    "look": 1
   },
   {
     "id": "px-8297532",
@@ -2204,7 +2251,8 @@
       "孫女",
       "戶外"
     ],
-    "file": "9382dbd7577d81fe.webp"
+    "file": "9382dbd7577d81fe.webp",
+    "look": 1
   },
   {
     "id": "px-5692225",
@@ -2226,7 +2274,8 @@
       "笑聲",
       "阿嬤"
     ],
-    "file": "f7187a2193c6f6a0.webp"
+    "file": "f7187a2193c6f6a0.webp",
+    "look": 1
   },
   {
     "id": "px-6692051",
@@ -2248,7 +2297,8 @@
       "新年",
       "拜年"
     ],
-    "file": "7eeb737aba077bf1.webp"
+    "file": "7eeb737aba077bf1.webp",
+    "look": 1
   },
   {
     "id": "px-6691868",
@@ -2271,7 +2321,8 @@
       "元宵",
       "節慶"
     ],
-    "file": "ac3fb5e8ada99b30.webp"
+    "file": "ac3fb5e8ada99b30.webp",
+    "look": 1
   },
   {
     "id": "px-5044541",
@@ -2337,7 +2388,8 @@
       "廚房",
       "團圓"
     ],
-    "file": "2f487cb811bc2247.webp"
+    "file": "2f487cb811bc2247.webp",
+    "look": 1
   },
   {
     "id": "px-29903783",
@@ -2361,7 +2413,8 @@
       "退休",
       "通用"
     ],
-    "file": "f7fb53b0cede5835.webp"
+    "file": "f7fb53b0cede5835.webp",
+    "retired": "11-23 john：長輩找較年輕、樣貌好的（這張看起來太老／氣色差）"
   },
   {
     "id": "px-4160236",
@@ -2527,5 +2580,510 @@
       "耳朵痛"
     ],
     "file": "46ca0867c724951e.webp"
+  },
+  {
+    "id": "px-5538609",
+    "title": "戴耳機在公園開心大笑的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5538609/",
+    "download": "https://images.pexels.com/photos/5538609/pexels-photo-5538609.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.3
+    ],
+    "tags": [
+      "耳機",
+      "戴耳機",
+      "聽音樂",
+      "音量",
+      "年輕人",
+      "戶外",
+      "散步",
+      "開心"
+    ],
+    "file": "2681f6b89c236715.webp",
+    "look": 1
+  },
+  {
+    "id": "px-5538621",
+    "title": "戴耳機專心想事情的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5538621/",
+    "download": "https://images.pexels.com/photos/5538621/pexels-photo-5538621.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "耳機",
+      "戴耳機",
+      "專心",
+      "線上課程",
+      "上課",
+      "聽講",
+      "年輕人",
+      "學生"
+    ],
+    "file": "fa2a40235885f7e9.webp",
+    "look": 1
+  },
+  {
+    "id": "px-5538623",
+    "title": "戴耳機轉頭看旁邊的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5538623/",
+    "download": "https://images.pexels.com/photos/5538623/pexels-photo-5538623.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "耳機",
+      "戴耳機",
+      "音量",
+      "周圍聲音",
+      "年輕人",
+      "學生",
+      "讀書"
+    ],
+    "file": "033116183f15478b.webp",
+    "look": 1
+  },
+  {
+    "id": "px-5538618",
+    "title": "戴耳機用筆電寫筆記的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5538618/",
+    "download": "https://images.pexels.com/photos/5538618/pexels-photo-5538618.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "耳機",
+      "筆電",
+      "電腦",
+      "視訊",
+      "視訊會議",
+      "線上課程",
+      "讀書",
+      "學生"
+    ],
+    "file": "db7d5e1553dfe7d2.webp",
+    "look": 1
+  },
+  {
+    "id": "px-5538615",
+    "title": "對著筆電撐著頭、很累的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5538615/",
+    "download": "https://images.pexels.com/photos/5538615/pexels-photo-5538615.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "疲勞",
+      "很累",
+      "休息",
+      "熬夜",
+      "電腦",
+      "筆電",
+      "專心"
+    ],
+    "file": "a2c8cb15c674a931.webp",
+    "look": 1
+  },
+  {
+    "id": "px-8185914",
+    "title": "戴耳機和孫女一起聽音樂的阿公",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/8185914/",
+    "download": "https://images.pexels.com/photos/8185914/pexels-photo-8185914.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "耳機",
+      "戴耳機",
+      "手機",
+      "聽聲音",
+      "每日聽練",
+      "練習",
+      "打卡",
+      "線上聽力測驗",
+      "小測驗",
+      "祖孫",
+      "孫女",
+      "聽音樂"
+    ],
+    "look": 1,
+    "file": "ddde4f836db07581.webp"
+  },
+  {
+    "id": "px-8185902",
+    "title": "戴耳機的孫女陪阿公用平板",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/8185902/",
+    "download": "https://images.pexels.com/photos/8185902/pexels-photo-8185902.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "耳機",
+      "平板",
+      "聽損模擬",
+      "線上",
+      "測驗",
+      "自我檢測",
+      "祖孫",
+      "孫女",
+      "在家"
+    ],
+    "look": 1,
+    "file": "67d29fb66b6d486b.webp"
+  },
+  {
+    "id": "px-8185900",
+    "title": "阿公和孫女在沙發用手機",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/8185900/",
+    "download": "https://images.pexels.com/photos/8185900/pexels-photo-8185900.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "手機",
+      "藍牙",
+      "App",
+      "連接手機",
+      "教長輩",
+      "祖孫",
+      "孫女",
+      "用手機"
+    ],
+    "look": 1,
+    "file": "efc28e0eb272a2fc.webp"
+  },
+  {
+    "id": "px-891458",
+    "title": "下雨天撐透明傘的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/891458/",
+    "download": "https://images.pexels.com/photos/891458/pexels-photo-891458.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.3
+    ],
+    "tags": [
+      "下雨",
+      "雨天",
+      "梅雨",
+      "潮濕",
+      "濕氣",
+      "颱風",
+      "天氣"
+    ],
+    "look": 1,
+    "file": "279e7b4a21562a42.webp"
+  },
+  {
+    "id": "px-5591277",
+    "title": "三代同堂在客廳",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5591277/",
+    "download": "https://images.pexels.com/photos/5591277/pexels-photo-5591277.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.55
+    ],
+    "tags": [
+      "多人聊天",
+      "一次一個人",
+      "換話題",
+      "聚會",
+      "家人",
+      "全家",
+      "家族",
+      "客廳"
+    ],
+    "look": 1,
+    "file": "5120d57b02af57c6.webp"
+  },
+  {
+    "id": "px-6691990",
+    "title": "全家穿新衣視訊拜年",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/6691990/",
+    "download": "https://images.pexels.com/photos/6691990/pexels-photo-6691990.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "視訊",
+      "過年",
+      "拜年",
+      "春節",
+      "團圓",
+      "新年",
+      "家人",
+      "平板"
+    ],
+    "look": 1,
+    "file": "319f39182be45216.webp"
+  },
+  {
+    "id": "px-7705708",
+    "title": "一家人在沙發和家人視訊",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/7705708/",
+    "download": "https://images.pexels.com/photos/7705708/pexels-photo-7705708.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "視訊",
+      "筆電",
+      "家人",
+      "線上",
+      "打招呼"
+    ],
+    "look": 1,
+    "file": "951cd3d653a23e9d.webp"
+  },
+  {
+    "id": "px-5693003",
+    "title": "阿嬤教孫女織毛線",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5693003/",
+    "download": "https://images.pexels.com/photos/5693003/pexels-photo-5693003.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "祖孫",
+      "陪伴",
+      "耐心",
+      "慢慢",
+      "孫女",
+      "面對面"
+    ],
+    "look": 1,
+    "file": "b9b8fee8daa3c5ea.webp"
+  },
+  {
+    "id": "px-5692648",
+    "title": "阿嬤陪孫子玩疊疊樂",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5692648/",
+    "download": "https://images.pexels.com/photos/5692648/pexels-photo-5692648.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.45
+    ],
+    "tags": [
+      "小孩",
+      "拿去玩",
+      "隨手放",
+      "孫子",
+      "玩具",
+      "陪伴"
+    ],
+    "look": 1,
+    "file": "95a6925d762ef7f9.webp"
+  },
+  {
+    "id": "px-5693021",
+    "title": "阿嬤念故事書給孫子聽",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5693021/",
+    "download": "https://images.pexels.com/photos/5693021/pexels-photo-5693021.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "慢慢說",
+      "咬字",
+      "面對面",
+      "陪伴",
+      "念故事"
+    ],
+    "look": 1,
+    "file": "3ace4e473d7bad7e.webp"
+  },
+  {
+    "id": "px-7364172",
+    "title": "阿嬤和孫子包水餃",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/7364172/",
+    "download": "https://images.pexels.com/photos/7364172/pexels-photo-7364172.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "過年",
+      "年菜",
+      "包水餃",
+      "團圓",
+      "冬至",
+      "祖孫",
+      "廚房"
+    ],
+    "look": 1,
+    "file": "3e1d4ac84b863c3a.webp"
+  },
+  {
+    "id": "px-7363703",
+    "title": "阿嬤給孫女紅包",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/7363703/",
+    "download": "https://images.pexels.com/photos/7363703/pexels-photo-7363703.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.45
+    ],
+    "tags": [
+      "過年",
+      "紅包",
+      "春節",
+      "祖孫",
+      "新年",
+      "壓歲錢"
+    ],
+    "look": 1,
+    "file": "6863949872957af2.webp"
+  },
+  {
+    "id": "px-38458416",
+    "title": "阿嬤和孫子在戶外面對面聊天",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/38458416/",
+    "download": "https://images.pexels.com/photos/38458416/pexels-photo-38458416.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "面對面",
+      "說話",
+      "聊天",
+      "祖孫",
+      "戶外",
+      "叫名字",
+      "對話"
+    ],
+    "look": 1,
+    "file": "edef196ac8c26c75.webp"
+  },
+  {
+    "id": "px-4429303",
+    "title": "戴口罩搭捷運看手機的年輕女生",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/4429303/",
+    "download": "https://images.pexels.com/photos/4429303/pexels-photo-4429303.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.35
+    ],
+    "tags": [
+      "口罩",
+      "戴口罩",
+      "捷運",
+      "通勤",
+      "公車",
+      "手機",
+      "流感"
+    ],
+    "look": 1,
+    "file": "ec1678b0045c77f6.webp"
+  },
+  {
+    "id": "px-5693028",
+    "title": "孫子親阿嬤的臉頰",
+    "source": "Pexels",
+    "url": "https://www.pexels.com/photo/5693028/",
+    "download": "https://images.pexels.com/photos/5693028/pexels-photo-5693028.jpeg?auto=compress&cs=tinysrgb&w=2400",
+    "license": "Pexels License",
+    "license_url": "https://www.pexels.com/license/",
+    "credit_required": false,
+    "focal": [
+      0.5,
+      0.4
+    ],
+    "tags": [
+      "祖孫",
+      "關懷",
+      "親情",
+      "開心",
+      "陪伴",
+      "孫子"
+    ],
+    "look": 1,
+    "file": "d6bbc368fb572f28.webp"
   }
 ]

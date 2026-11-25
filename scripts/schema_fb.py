@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-schema_fb.py — Facebook 粉專整合的資料表（fb_threads / fb_messages / fb_posts / fb_post_drafts）。
+schema_fb.py — Facebook 粉專整合的資料表（fb_threads / fb_messages / fb_posts / fb_post_drafts / fb_comment_points）。
+（集點的會員綁定表 y1member.member_fb、fb_link_codes 和官網讀的檢視表在 y1web scripts/setup_db.py，要先跑這支再跑那支。）
 
 本專案沒有 migration 機制；這支把 DDL 固化進版控，CREATE TABLE IF NOT EXISTS 可重跑。
 程式在 api/fb_page.py、api/fb_drafts.py；選單與權限在 scripts/seed_menus.py
@@ -110,6 +111,28 @@ CREATE TABLE IF NOT EXISTS `fb_post_drafts` (
   KEY `idx_fbd_day` (`day`,`status`),
   KEY `idx_fbd_fb` (`fb_post_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='粉專貼文草稿（本機 AI 每天寫，管理者勾選才發）'
+""",
+    # 粉專集點（api/fb_points.py，2026-11-19）：一則留言一筆；同一人同一則貼文只有一筆 counted（counted_key 唯一）
+    """
+CREATE TABLE IF NOT EXISTS `fb_comment_points` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `comment_id` varchar(120) NOT NULL COMMENT 'Facebook 留言 id（＝fb_messages.ext_mid）',
+  `post_id` varchar(120) NOT NULL COMMENT '留言所在的粉專貼文 id',
+  `person_id` varchar(64) NOT NULL COMMENT '留言者的粉專編號（＝Messenger PSID）',
+  `person_name` varchar(100) DEFAULT NULL,
+  `points` tinyint unsigned NOT NULL DEFAULT 0 COMMENT '計分時給的點數（規則改了也不動舊紀錄）',
+  `status` enum('counted','repeat','removed','void') NOT NULL COMMENT '計分／同一則貼文已計分／留言已刪除／作廢',
+  `counted_key` varchar(200) GENERATED ALWAYS AS (IF(`status`='counted', CONCAT(`person_id`, '|', `post_id`), NULL)) STORED,
+  `void_by` varchar(45) DEFAULT NULL,
+  `void_at` datetime DEFAULT NULL,
+  `void_reason` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '收到留言的時間',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_fcp_comment` (`comment_id`),
+  UNIQUE KEY `uk_fcp_counted` (`counted_key`),
+  KEY `idx_fcp_person` (`person_id`,`post_id`),
+  KEY `idx_fcp_time` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='粉專集點：客人留言的計分紀錄'
 """,
 ]
 

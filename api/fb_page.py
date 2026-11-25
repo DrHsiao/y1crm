@@ -29,7 +29,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Sequence
 
 import pymysql
 import pymysql.cursors
@@ -37,7 +37,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 import config
-from api import ai_chat, dbpool, wording
+from api import ai_chat, dbpool, fb_points, wording
 
 log = logging.getLogger("y1crm.fb")
 router = APIRouter()
@@ -204,6 +204,23 @@ def publish_photo(message: str, image: bytes) -> Optional[str]:
     r = _graph(f"{_cfg('page_id') or 'me'}/photos", {"message": message, "published": "true"},
                files={"source": ("image.jpg", image, "image/jpeg")})
     return (r or {}).get("post_id") or (r or {}).get("id")
+
+
+def publish_photos(message: str, images: Sequence[bytes]) -> Optional[str]:
+    """粉專發一則多圖貼文（手機上左右滑動；2026-11-22 John：活動圖「5 則照排＋1 則多圖」）。
+    每張先上傳成不公開的相片（published=false），再用 attached_media 一起掛在同一則貼文。回貼文 id；開發模式回 None。"""
+    page = _cfg("page_id") or "me"
+    ids = []
+    for i, img in enumerate(images):
+        r = _graph(f"{page}/photos", {"published": "false"}, files={"source": (f"image{i}.jpg", img, "image/jpeg")})
+        if r is None:               # 開發模式
+            return None
+        ids.append(r["id"])
+    payload: Dict[str, Any] = {"message": message}
+    for i, pid in enumerate(ids):
+        payload[f"attached_media[{i}]"] = json.dumps({"media_fbid": pid})
+    r = _graph(f"{page}/feed", payload)
+    return (r or {}).get("id")
 
 
 def publish_video(message: str, title: str, video: bytes, thumb: Optional[bytes] = None) -> Optional[str]:
@@ -510,6 +527,31 @@ def _fill_name(tid: int, psid: str) -> None:
                         (name[:100], tid))
 
 
+def _points(fn, *args):
+    """粉專集點（api/fb_points.py）：出錯（例如資料表還沒建）只記 log，不影響留言／私訊本身的處理。"""
+    try:
+        return fn(*args)
+    except Exception:  # noqa: BLE001
+        log.exception("粉專集點處理失敗：%s", getattr(fn, "__name__", fn))
+        return None
+
+
+def _system_reply(tid: int, psid: str, text: str) -> None:
+    """系統自動回 Messenger（綁定碼結果；固定文字，不經 AI）。"""
+    mid, err = None, None
+    try:
+        mid = send_message(psid, text)
+    except GraphError as e:
+        err = str(e)
+        log.warning("Messenger 系統回覆失敗：%s", err)
+    with _conn() as db, db.cursor() as cur:
+        if mid:
+            _claim_sent(cur, tid, "system", text, mid, None)
+        else:
+            log_msg(cur, tid, "out", "system", text, status="failed" if err else "discarded",
+                    meta=(err or "開發模式，沒有真的送出")[:255])
+
+
 def handle(ev: Dict[str, Any]) -> None:
     with _conn() as db, db.cursor() as cur:
         if ev["op"] == "edit":
@@ -520,6 +562,8 @@ def handle(ev: Dict[str, Any]) -> None:
             # 客人刪了留言：這邊也不留內容
             cur.execute("UPDATE fb_messages SET text='[留言已刪除]', meta='客人刪除了留言' WHERE ext_mid=%s",
                         (ev["mid"],))
+            if ev["kind"] == "comment":
+                _points(fb_points.remove_comment, ev["mid"])
             return
         tid = _thread(cur, ev)
         rid, new = log_msg(cur, tid, ev["direction"], ev["source"], ev["text"], ev["mid"],
@@ -530,10 +574,19 @@ def handle(ev: Dict[str, Any]) -> None:
             if ev["kind"] == "messenger":
                 set_human(cur, tid, "fb_inbox")   # 店員在 Meta Business Suite 回了，AI 先閉嘴
             return
-        need_name = ev["kind"] == "messenger" and not (get_thread(cur, tid) or {}).get("person_name")
+        if ev["kind"] == "comment" and ev.get("person_id"):
+            _points(fb_points.record_comment, ev["mid"], ev.get("post_id"), ev["person_id"], ev.get("person_name"))
+        thread_name = (get_thread(cur, tid) or {}).get("person_name")
+        need_name = ev["kind"] == "messenger" and not thread_name
         mode = _mode(cur, tid)
     if need_name:
         threading.Thread(target=_fill_name, args=(tid, ev["ext_id"]), daemon=True).start()
+    # 官網會員頁的綁定碼：客人用 Messenger 傳 6 位數 → 綁會員、回固定文字，不交給 AI
+    if ev["kind"] == "messenger" and ev.get("plain") and fb_points.find_code(ev["text"])[0]:
+        msg = _points(fb_points.try_bind, ev["ext_id"], ev["text"], thread_name or _profile_name(ev["ext_id"]))
+        if msg:
+            _system_reply(tid, ev["ext_id"], msg)
+            return
     if not ai_chat.enabled() or not ev.get("plain"):
         return                                    # 圖片、貼圖等不送 AI
     if ev["kind"] == "messenger" and (ai_reply_mode() == "off" or mode == "human"):

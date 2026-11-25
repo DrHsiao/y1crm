@@ -1,4 +1,4 @@
-/* web_admin.js — 官網管理頁（選單權限 web）：編輯官網 y1web 的關於我們／聽力專欄／好評分享／使用小教室／補助小幫手。
+/* web_admin.js — 官網管理頁（選單權限 web）：編輯官網 y1web 的關於我們／最新消息／聽力專欄／好評分享／使用小教室／補助小幫手。
    資料存在 y1web 資料庫；官網快取 60 秒，存檔後最多一分鐘出現在官網。
    編輯區放在頁面上（不用對話框：對話框按 Esc 或點外面就會關掉，長文章容易誤丟）。
    依賴 common.js：$/esc/api/DF/dfToISO/attachDateMask/setStatus/setSeg/getSeg/shrinkImage/initHeader */
@@ -11,13 +11,15 @@ let dirty = false;
 let pickFor = null;    // "cover" 或 "body"
 
 const KIND_HINT = {
+  slide: "「輪播照片」是官網首頁和各頁最上面整片的大照片，每 6.5 秒淡入下一張，標題文字固定不動；每張勾選要出現在哪些頁面（首頁最多 6 張、其他頁最多 10 張，子頁面每次從隨機一張開始）。只有「發佈」而且有上傳照片、在期間內的才會出現；某一頁一張都沒有時維持原本的樣子。照片用橫式、人物放右邊三分之一，左邊留給標題。",
   about: "「關於我們」頁由上而下顯示「發佈」的段落（依排序）。每段可以放一張圖。",
+  event: "「最新消息」在官網「關於我們」選單裡：公休、活動等公告，新的在前。置頂的排最上面；有填日期的，過了結束日期自動不再置頂。沒放封面圖的，官網會用日期做縮圖。",
   article: "「聽力專欄」新的在前。發佈日期在未來的，到那天才會出現。",
   share: "「好評分享」只會顯示「發佈」而且勾了「已取得當事人同意」的。評論轉貼只能用本門市的評論，原文照登或刪節，不能改寫；請勿張貼別家業者的評價。",
   care: "「使用小教室」依排序顯示，交機時可以把 QR 貼紙貼在助聽器盒子上，客人在家掃了就看得到。",
   subsidy: "「補助小幫手」：民眾回答幾個問題，官網列出可能適用的補助並連到官方網站。規定常變動，發佈前請先向主管機關確認；不要寫金額。",
 };
-const SITE_PATH = { about: "/about", article: "/column", share: "/share", care: "/care", subsidy: "/subsidy" };
+const SITE_PATH = { slide: "/", about: "/about", event: "/news", article: "/column", share: "/share", care: "/care", subsidy: "/subsidy" };
 const FB_KINDS = ["article", "care"];   // 有自己網頁的才能分享到粉專（同 api/fb_page.SHARE_PATHS）
 const kind = () => getSeg("wa-kind");
 const isQuote = () => (cur?.kind || kind()) === "share" && getSeg("wa-format") === "quote";
@@ -42,6 +44,22 @@ const hasVideo = r => !!(r.extra && r.extra.video && typeof r.extra.video === "o
 const videoTag = r => !hasVideo(r) ? "" : r.extra.video.youtube?.ok ? ' <span title="官網嵌 YouTube">▶ YouTube</span>'
   : r.extra.video.youtube ? ' <span title="YouTube 連結有問題，官網暫時播本站的影片">▶ ⚠</span>'
   : ' <span title="有影片，還沒貼 YouTube 網址">▶ 影片</span>';
+// 最新消息：置頂到結束日期為止（同官網 y1web app/content.news_pinned）
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const pinTag = r => !r.extra.pinned ? "" : r.end_date && r.end_date < todayISO()
+  ? '<span class="lh" title="過了結束日期，已自動取消置頂">已過期</span>' : "📌 置頂";
+const rangeTag = r => !r.start_date ? '<span class="lh">—</span>'
+  : `<span class="lh">${esc((META.news_date_kinds || {})[r.extra.date_kind] || "")}</span><br>${esc(dateLabel(r.start_date))}`
+    + (r.end_date && r.end_date !== r.start_date ? `～${esc(dateLabel(r.end_date))}` : "");
+// 首頁輪播的期間（同官網 y1web app/content.slides：期間外不出現）
+const slideRange = r => {
+  if (!r.start_date && !r.end_date) return '<span class="lh">一直顯示</span>';
+  const t = todayISO(), txt = `${r.start_date ? esc(dateLabel(r.start_date)) : ""}～${r.end_date ? esc(dateLabel(r.end_date)) : ""}`;
+  const tag = r.end_date && r.end_date < t ? "已過期" : r.start_date && r.start_date > t ? "還沒開始" : "";
+  return txt + (tag ? `<br><span class="lh">${tag}</span>` : "");
+};
+const slideThumb = r => r.cover ? `<img src="/api/web/media/${esc(r.cover)}" alt="" style="width:120px;height:68px;object-fit:cover;border-radius:4px;display:block">`
+  : '<span class="lh">還沒上傳照片</span>';
 const picksTag = (codes, labels, none) => (codes || []).map(c => esc(labels[c] || c)).join("、") || `<span class="lh">${none}</span>`;
 
 // ── 列表 ─────────────────────────────────────────────────────
@@ -67,7 +85,9 @@ async function loadList() {
   $("wa-art-btn").textContent = k === "share" ? `🎨 沒有圖片的畫示意插圖（${noPic} 則）` : `📷 沒有封面的挑圖庫照片（${noPic} 篇）`;
   $("wa-art-btn").disabled = !noPic;
   const head = {
+    slide: "<th>排序</th><th>照片</th><th>照片說明</th><th>頁面</th><th>期間</th><th>狀態</th><th>最後修改</th>",
     about: "<th>排序</th><th>英文小標</th><th>標題</th><th>狀態</th><th>圖</th><th>最後修改</th>",
+    event: "<th>發佈日期</th><th>標題</th><th>日期</th><th>置頂</th><th>狀態</th><th>最後修改</th>",
     article: "<th>發佈日期</th><th>分類</th><th>標題</th><th>狀態</th><th>圖</th><th>最後修改</th>",
     share: "<th>發佈日期</th><th>分享人</th><th>標題</th><th>同意</th><th>狀態</th><th>最後修改</th>",
     care: "<th>排序</th><th>標題</th><th>適用</th><th>狀態</th><th>圖</th><th>最後修改</th>",
@@ -77,8 +97,12 @@ async function loadList() {
   const modified = r => `${esc(DF.fromISODateTime(r.updated_at))}<br><span class="lh">${esc(r.updated_by || "")}</span>`;
   $("wa-body").innerHTML = rows.map(r => {
     const cells = {
+      slide: `<td>${r.sort}</td><td>${slideThumb(r)}</td><td>${esc(r.title)}${r.extra.note ? `<br><span class="lh">圖角：${esc(r.extra.note)}</span>` : ""}</td>
+              <td>${picksTag(r.extra.pages || ["home"], META.slide_pages || {}, "首頁")}</td><td>${slideRange(r)}</td><td>${statusTag(r)}</td><td>${modified(r)}</td>`,
       about: `<td>${r.sort}</td><td>${esc(r.extra.en || "")}</td><td>${esc(r.title)}</td>
               <td>${statusTag(r)}</td><td>${coverTag(r)}</td><td>${modified(r)}</td>`,
+      event: `<td>${esc(DF.fromISO(r.publish_date)) || "—"}</td><td>${esc(r.title)}</td><td>${rangeTag(r)}</td>
+              <td>${pinTag(r)}</td><td>${statusTag(r)}</td><td>${modified(r)}</td>`,
       article: `<td>${esc(DF.fromISO(r.publish_date)) || "—"}</td><td>${esc(r.category || "")}</td><td>${esc(r.title)}</td>
               <td>${statusTag(r)}</td><td>${coverTag(r)}${videoTag(r)}</td><td>${modified(r)}</td>`,
       share: `<td>${esc(DF.fromISO(r.publish_date)) || "—"}</td><td>${esc(r.extra.person || "")}</td><td>${shareCell(r)}</td>
@@ -340,7 +364,9 @@ function showKindFields(k) {
     el.classList.toggle("hidden", !el.dataset.kinds.split(" ").includes(eff)));
   if (eff === "quote") showPlatformFields();
   $("wa-cover-label").innerHTML = eff === "quote"
-    ? '圖片<span class="lh">選填一張：評論附的照片、心得卡照片。官網放在卡片上方（裁成 3:2），點開看完整的圖</span>' : "封面圖";
+    ? '圖片<span class="lh">選填一張：評論附的照片、心得卡照片。官網放在卡片上方（裁成 3:2），點開看完整的圖</span>'
+    : eff === "slide" ? '照片 <span class="req">*</span><span class="lh">橫式、寬 1600 像素以上；人物放右邊三分之一，左邊留給標題</span>' : "封面圖";
+  $("wa-title-label").innerHTML = (eff === "slide" ? "照片說明" : "標題") + ' <span class="req">*</span>';
   if (cur) renderCover();
 }
 
@@ -436,6 +462,18 @@ async function waEdit(id) {
   $("wa-src-title").value = src.title || "";
   $("wa-src-mode").value = src.mode || "translate";
   $("wa-agency").value = cur.extra.agency || "";
+  $("wa-dkind").innerHTML = Object.entries(META.news_date_kinds || {})
+    .map(([v, l]) => `<option value="${esc(v)}"${v === (cur.extra.date_kind || "closed") ? " selected" : ""}>${esc(l)}</option>`).join("");
+  $("wa-start").value = DF.fromISO(cur.start_date || "");
+  $("wa-end").value = cur.end_date && cur.end_date !== cur.start_date ? DF.fromISO(cur.end_date) : "";
+  $("wa-pinned").checked = !!cur.extra.pinned;
+  $("wa-sl-start").value = DF.fromISO(cur.start_date || "");
+  $("wa-sl-end").value = DF.fromISO(cur.end_date || "");
+  $("wa-focus").innerHTML = Object.entries(META.slide_focus || {})
+    .map(([v, l]) => `<option value="${esc(v)}"${Number(v) === (cur.extra.focus ?? 70) ? " selected" : ""}>${esc(l)}</option>`).join("");
+  $("wa-note").value = cur.extra.note || "";
+  $("wa-link").value = cur.extra.link || "";
+  renderChecks("wa-pages", META.slide_pages || {}, cur.extra.pages || ["home"]);
   $("wa-link").value = cur.extra.link || "";
   $("wa-summary").value = cur.summary || "";
   $("wa-body-md").value = cur.body_md || "";
@@ -495,8 +533,22 @@ function collect() {
     when: checked("wa-when"), agency: $("wa-agency").value.trim(), link: $("wa-link").value.trim(),
     source_url: $("wa-src-url").value.trim(), source_site: $("wa-src-site").value.trim(),
     source_title: $("wa-src-title").value.trim(), source_mode: $("wa-src-mode").value,
+    date_kind: $("wa-dkind").value, pinned: $("wa-pinned").checked,
   };
   body.publish_date = dfToISO($("wa-date").value, "發佈日期");
+  if (k === "event") {
+    body.start_date = dfToISO($("wa-start").value, "開始日期");
+    body.end_date = dfToISO($("wa-end").value, "結束日期");
+  }
+  if (k === "slide") {
+    body.start_date = dfToISO($("wa-sl-start").value, "開始日期");
+    body.end_date = dfToISO($("wa-sl-end").value, "結束日期");
+    body.focus = $("wa-focus").value;
+    body.note = $("wa-note").value.trim();
+    body.link = $("wa-link").value.trim();
+    body.pages = checked("wa-pages");
+    if (body.status === "published" && !cur.cover) throw new Error("請先存成草稿、上傳照片，再發佈。");
+  }
   return body;
 }
 
@@ -1077,6 +1129,7 @@ document.querySelectorAll("#wa-editor input, #wa-editor textarea, #wa-editor sel
   el.addEventListener("input", () => { dirty = true; }));
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 attachDateMask($("wa-date"));
+for (const id of ["wa-start", "wa-end", "wa-sl-start", "wa-sl-end"]) { attachDateMask($(id)); $(id).placeholder = DF.placeholder; }
 $("wa-date").placeholder = DF.placeholder;
 $("wa-date-hint").textContent = DF.hint;
 attachDateMask($("wa-posted"));

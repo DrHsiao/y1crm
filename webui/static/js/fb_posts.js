@@ -150,7 +150,7 @@ function render() {
   $("fp-list").innerHTML = Object.keys(days).sort().reverse().map(day =>
     `<h4 class="fp-day">${esc(dateLabel(day))}${day === now ? "　今天" : ""}</h4>` + days[day].map(itemHtml).join("")
   ).join("") || `<p class="hint fp-empty">目前沒有草稿。${info.auto.enabled
-    ? `每天 ${String(info.auto.hour).padStart(2, "0")}:00 後會自動寫好；` : ""}也可以用上面的「多寫一則」。</p>`;
+    ? `週一到週五 ${info.auto.at || String(info.auto.hour).padStart(2, "0") + ":00"} 後會自動寫好；` : ""}也可以用上面的「多寫一則」。</p>`;
   $("fp-count").textContent = info.pending.length ? `（${info.pending.length} 則待選）` : "";
   renderPicked();
   renderRecent();

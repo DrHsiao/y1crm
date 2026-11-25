@@ -1,12 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}官網管理 — y1crm{% endblock %}
 {% block content %}
-  <!-- ── 官網管理（y1web 官網的關於我們／聽力專欄／好評分享／使用小教室／補助小幫手；選單權限 web）── -->
+  <!-- ── 官網管理（y1web 官網的關於我們／最新消息／聽力專欄／好評分享／使用小教室／補助小幫手；選單權限 web）── -->
   <div class="card" id="wa-list-card">
     <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
       <h3 style="flex:1; min-width:10rem;">官網管理<span class="lh" id="wa-count"></span></h3>
       <div class="seg" id="wa-kind" data-value="about">
-        <button data-v="about">關於我們</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button><button data-v="care">使用小教室</button><button data-v="subsidy">補助小幫手</button>
+        <button data-v="slide">輪播照片</button><button data-v="about">關於我們</button><button data-v="event">最新消息</button><button data-v="article">聽力專欄</button><button data-v="share">好評分享</button><button data-v="care">使用小教室</button><button data-v="subsidy">補助小幫手</button>
       </div>
       <button type="button" class="btn sm" onclick="waEdit(null)">＋ 新增</button>
       <a class="btn sm outline" id="wa-site" target="_blank" rel="noopener">在官網查看 ↗</a>
@@ -61,8 +61,33 @@
           </div>
           <div class="field-info">評論轉貼：Google 地圖等平台上的評論，原文照登或節錄。心得文章：客人的故事，有自己的網頁，可以放照片。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="about article share care subsidy"><label>標題 <span class="req">*</span></label>
-          <input id="wa-title" maxlength="120"></div>
+        <div class="modal-field wa-only" data-kinds="about event article share care subsidy slide"><label id="wa-title-label">標題 <span class="req">*</span></label>
+          <input id="wa-title" maxlength="120">
+          <div class="field-info wa-only" data-kinds="slide">寫照片裡是什麼，例如「店長在櫃檯迎接客人」。官網畫面上不顯示，是給看不到圖的人（讀螢幕軟體）和搜尋引擎看的。</div></div>
+        <div class="modal-field wa-only" data-kinds="slide">
+          <div class="modal-row">
+            <div class="modal-field"><label>開始日期</label><input id="wa-sl-start" inputmode="numeric"></div>
+            <div class="modal-field"><label>結束日期</label><input id="wa-sl-end" inputmode="numeric"></div>
+          </div>
+          <div class="field-info">選填。節日、活動的照片填起訖日期：開始那天才出現，過了結束日期自動下架。都空白＝一直顯示。</div>
+          <div class="modal-row">
+            <div class="modal-field"><label>手機版保留位置</label><select id="wa-focus"></select></div>
+            <div class="modal-field"><label>圖角小字<span class="lh">選填，最多 12 字</span></label><input id="wa-note" maxlength="12" placeholder="例：情境示意"></div>
+          </div>
+          <div class="modal-field"><label>點圖角小字連到<span class="lh">選填，官網裡的網址</span></label><input id="wa-link" maxlength="150" placeholder="例：/practice/"></div>
+          <div class="field-info">手機畫面是直的，照片左右兩邊會被裁掉：選人物在照片的哪一邊。圖角小字通常空白；活動照片可以填連結，圖角小字會變成可以點的按鈕。</div>
+          <label style="margin-top:.6rem">出現在哪些頁面 <span class="req">*</span></label>
+          <div class="wa-checks" id="wa-pages"></div>
+          <div class="field-info">首頁最多 6 張、其他頁面最多 10 張（依排序）。子頁面每次打開會從隨機一張開始。照片裡有虛構的客人時，不要勾「好評分享」。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="event">
+          <div class="modal-row">
+            <div class="modal-field"><label>日期種類</label><select id="wa-dkind"></select></div>
+            <div class="modal-field"><label>開始日期</label><input id="wa-start" inputmode="numeric"></div>
+            <div class="modal-field"><label>結束日期<span class="lh">只有一天可空白</span></label><input id="wa-end" inputmode="numeric"></div>
+          </div>
+          <div class="field-info">選填。官網會在公告最上面標出來，例如「休息日期 115/10/10（六）」。沒有特定日期的公告就空白。</div>
+        </div>
         <div class="modal-field wa-only" data-kinds="quote">
           <label>貼上整段評論<span class="lh">用電腦打開 Google 地圖的門市評論，從評論者名字選到評論最後一個字（長評論先按「更多」），複製後貼在這裡</span></label>
           <textarea id="wa-paste" rows="5"></textarea>
@@ -143,9 +168,9 @@
             <div class="modal-field"><select id="wa-src-mode"><option value="translate">翻譯整理</option><option value="repost">轉載</option></select></div>
           </div>
         </div>
-        <div class="modal-field wa-only" data-kinds="about article share care subsidy"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
+        <div class="modal-field wa-only" data-kinds="about event article share care subsidy"><label>摘要<span class="lh">列表上顯示的一兩句話</span></label>
           <textarea id="wa-summary" rows="2" maxlength="300"></textarea></div>
-        <div class="modal-field wa-only" data-kinds="about article share care subsidy">
+        <div class="modal-field wa-only" data-kinds="about event article share care subsidy">
           <label>內文<span class="lh">**粗體**　## 小標題　- 清單　空一行＝分段</span></label>
           <div class="wa-tools">
             <button type="button" class="btn sm outline" onclick="waWrap('**', '**', '粗體字')">粗體</button>
@@ -167,20 +192,24 @@
           <label class="wa-check"><input type="checkbox" id="wa-consent"> 已取得當事人同意公開</label>
           <div class="field-info">真實客人的經驗、照片和評論，要有本人同意才能發佈。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="article share quote">
+        <div class="modal-field wa-only" data-kinds="event">
+          <label class="wa-check"><input type="checkbox" id="wa-pinned"> 置頂</label>
+          <div class="field-info">排在最新消息最上面。有填日期的，過了結束日期就自動不再置頂。</div>
+        </div>
+        <div class="modal-field wa-only" data-kinds="event article share quote">
           <label>發佈日期<span class="lh" id="wa-date-hint"></span></label>
           <input id="wa-date" inputmode="numeric">
           <div class="field-info">空白＝發佈當天。日期在未來的，到那天才會出現在官網。</div>
         </div>
-        <div class="modal-field wa-only" data-kinds="about care subsidy">
-          <label>排序<span class="lh">數字小的在上面</span></label>
+        <div class="modal-field wa-only" data-kinds="about care subsidy slide">
+          <label>排序<span class="lh">數字小的在上面（輪播：小的先出現）</span></label>
           <input id="wa-sort" type="number" step="10">
         </div>
-        <div class="modal-field wa-only" data-kinds="about article share quote care subsidy">
+        <div class="modal-field wa-only" data-kinds="about event article share quote care subsidy slide">
           <label id="wa-cover-label">封面圖</label>
           <div id="wa-cover"></div>
         </div>
-        <details class="wa-adv wa-only" data-kinds="about article share care subsidy">
+        <details class="wa-adv wa-only" data-kinds="about event article share care subsidy">
           <summary>網址代稱（進階）</summary>
           <input id="wa-slug" maxlength="80" placeholder="空白＝自動產生" autocapitalize="none" spellcheck="false">
           <div class="field-info">官網網址的最後一段，只能用英文小寫、數字、-。</div>

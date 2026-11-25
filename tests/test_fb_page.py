@@ -173,12 +173,50 @@ class Window(unittest.TestCase):
 
 class Prompt(unittest.TestCase):
     def test_channel_note(self):
-        line = ai_chat.system_prompt()
-        self.assertNotIn("Facebook", line)                          # LINE 的提示詞完全不變
-        self.assertIn("公開留言", ai_chat.system_prompt("comment"))
-        self.assertIn("Messenger", ai_chat.system_prompt("messenger"))
-        self.assertTrue(ai_chat.system_prompt("comment").startswith(line))
+        # 組合順序：客服規則 → 管道補充（FB 留言／Messenger）→ 今日營業狀態（永遠最後一行，「以這行為準」）。
+        # 11-15 修：舊版假設留言版＝LINE 版＋補充，沒算到 LINE 版結尾多了營業狀態；營業狀態固定住，免得跨分鐘不穩。
+        now = "\n\n現在是台灣時間（測試）。"
+        from unittest import mock
+        with mock.patch.object(ai_chat, "_now_note", return_value=now):
+            line = ai_chat.system_prompt()
+            self.assertNotIn("Facebook", line)                      # LINE 的提示詞完全不變
+            self.assertIn("公開留言", ai_chat.system_prompt("comment"))
+            self.assertIn("Messenger", ai_chat.system_prompt("messenger"))
+            base = line[:-len(now)]
+            for ch in ("comment", "messenger"):
+                p = ai_chat.system_prompt(ch)
+                self.assertTrue(p.startswith(base))                 # LINE 的規則原封不動在最前面
+                self.assertTrue(p.endswith(now))                    # 營業狀態一律在最後
+                self.assertNotEqual(p, line)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublishPhotos(unittest.TestCase):
+    """多圖貼文（2026-11-22）：每張先不公開上傳，再用 attached_media 掛在同一則。"""
+
+    def test_uploads_unpublished_then_attaches(self):
+        from unittest import mock
+        calls = []
+
+        def fake(path, payload=None, method="POST", files=None, **kw):
+            calls.append((path, dict(payload or {}), bool(files)))
+            if path.endswith("/photos"):
+                return {"id": f"m{len(calls)}"}
+            return {"id": "post1"}
+        with mock.patch.object(fb_page, "_graph", side_effect=fake), mock.patch.object(fb_page, "_cfg", return_value="123"):
+            pid = fb_page.publish_photos("文字", [b"a", b"b", b"c"])
+        self.assertEqual(pid, "post1")
+        self.assertEqual([c[0] for c in calls], ["123/photos"] * 3 + ["123/feed"])
+        self.assertTrue(all(c[1] == {"published": "false"} and c[2] for c in calls[:3]))
+        feed = calls[3][1]
+        self.assertEqual(feed["message"], "文字")
+        self.assertEqual(feed["attached_media[0]"], '{"media_fbid": "m1"}')
+        self.assertEqual(feed["attached_media[2]"], '{"media_fbid": "m3"}')
+
+    def test_dev_mode_returns_none(self):
+        from unittest import mock
+        with mock.patch.object(fb_page, "_graph", return_value=None), mock.patch.object(fb_page, "_cfg", return_value="123"):
+            self.assertIsNone(fb_page.publish_photos("文字", [b"a"]))

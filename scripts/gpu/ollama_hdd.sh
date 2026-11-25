@@ -9,7 +9,7 @@
 # ⚠ ollama rm 只刪沒有其他模型引用的 blob，共用的 blob（例如授權、範本）不會被刪。
 # ⚠ 三卡合跑模式下，呼叫端用到不在 NVMe 的模型名稱會直接報「找不到模型」，不會擠掉 Flash-Next（這是好事）。
 set -euo pipefail
-STORE=/mnt/raid1/llm_models/ollama/models
+STORE=${OLLAMA_STORE:-/mnt/raid1/llm_models/ollama/models}   # 可改指向夜間模型庫
 HDD=/mnt/hdd/models/ollama/models
 LOG=/mnt/raid1/monitoring/ollama_hdd.log
 CTR=${OLLAMA_CTR:-$(docker ps --format '{{.Names}}' | grep -E '^(ollama-all|ollama)$' | head -1)}

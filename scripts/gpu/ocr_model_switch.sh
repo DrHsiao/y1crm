@@ -7,7 +7,7 @@
 # 2026-11-12 john「直接換成 Qwen3.8 落地取代，qwen3-vl 移到硬碟，有問題再換回」：
 #   0002 改常駐 qwen3.8:27b；qwen3-vl:32b、32b-instruct 搬到 /mnt/hdd/models/ollama/models（已驗 sha256）。
 #   各呼叫端都已補 "think": False（qwen3.8 預設會思考；對 qwen3-vl 無害），換回時不用動。
-# 會改：y1crm config.toml／config.py、看門狗、預熱、gpu_lend.sh、AOI led_count.py／verify_vlm.py、IG ai_analysts（停用中）。
+# 會改：y1crm config.toml／config.py、看門狗、預熱、gpu_lend.sh、AOI led_count.py／verify_vlm.py。
 # 會重啟：y1crm.service；alphaclaw-aoi.service 只在開著時才重啟（各停幾秒）。
 set -euo pipefail
 case "${1:-}" in
@@ -33,8 +33,7 @@ RULES=(
   "/home/john/media/ghibli/gpu_lend.sh|s/OCR_MODEL=$F /OCR_MODEL=$TO /"
   "/home/john/aoi/led_count.py|s/^VLM_MODEL = \"$F\"/VLM_MODEL = \"$TO\"/"
   "/home/john/aoi/map/verify_vlm.py|s/\"MAP_VLM_MODEL\", \"$F\"/\"MAP_VLM_MODEL\", \"$TO\"/"
-  "/home/john/ig/conf/ai_analysts.json|s/\"local_model\": \"$F\"/\"local_model\": \"$TO\"/"
-  "/home/john/ig/scripts/ai_analysts.py|s/c.get(\"local_model\", \"$F\")/c.get(\"local_model\", \"$TO\")/"
+  # （2026-11-17 拿掉 IG ai_analysts 兩條：IG 專案封存，john「把y1crm那幾行拿掉」）
 )
 
 # 0. 先檢查每條規則都剛好對到一行

@@ -263,6 +263,20 @@ class Stock(unittest.TestCase):
         self.assertEqual(stock_art.pick(self.ITEMS, "充電座怎麼用")["id"], "senior")     # 都不相關：用「通用」的
         self.assertIsNone(stock_art.pick([], "x"))
 
+    def test_look_and_retired(self):
+        # 11-23 john：人物挑年輕、樣貌好的 → look＝1 同樣相關時先挑；retired 不再挑；相關度還是優先
+        from api import stock_art
+        items = [{"id": "old", "file": "aaaaaaaaaaaaaaaa.webp", "tags": ["耳機", "音量"]},
+                 {"id": "young", "file": "bbbbbbbbbbbbbbbb.webp", "tags": ["耳機", "音量"], "look": 1},
+                 {"id": "swab", "file": "cccccccccccccccc.webp", "tags": ["棉花棒", "掏耳朵"]},
+                 {"id": "doc", "file": "dddddddddddddddd.webp", "tags": ["耳朵"], "look": 1},
+                 {"id": "gone", "file": "eeeeeeeeeeeeeeee.webp", "tags": ["耳機", "音量", "追劇"], "retired": "太老"}]
+        avail = stock_art.available(items)
+        self.assertNotIn("gone", [x["id"] for x in avail])
+        self.assertEqual(stock_art.pick(avail, "追劇耳機音量")["id"], "young")
+        self.assertEqual(stock_art.pick(avail, "用棉花棒掏耳朵")["id"], "swab")          # 好看加分不壓過相關度
+        self.assertEqual(stock_art.pick(avail, "追劇耳機音量", {"bbbbbbbbbbbbbbbb.webp": 1})["id"], "old")  # 用過了還是會輪
+
     def test_credit(self):
         from api import stock_art
         c = stock_art.credit(self.ITEMS[3])

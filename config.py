@@ -84,14 +84,21 @@ _DEFAULTS: dict = {
     "board": {"key": ""},
     # 粉專貼文草稿（api/fb_drafts.py）：每天 draft_hour 點後由本機 AI 寫 draft_count 則（預設勾選），
     # auto_publish 時間前門市沒取消勾選就自動發（John 2026-11-08）；auto_publish 留空＝只能手動發
-    "social": {"draft_enabled": True, "draft_hour": 6, "draft_count": 3, "news": True, "auto_publish": "10:30"},
+    # draft_think：每日預製用的思考強度（John 2026-11-13「沒有即時性的工作都用高度思考」）；false＝關
+    # skip_weekdays：這幾天不寫也不自動發（Python weekday，5＝週六、6＝週日；John 2026-11-15「週六日不發，移到週一」）
+    # draft_count 含一則新聞：沒有合適新聞的那天就少一則（John 2026-11-15）
+    # draft_at／draft_wait_until：John 2026-11-15 GPU 早上給影片工作室，08:00 換回白天 Flash-Next → 08:10 寫，沒好就等到 09:00
+    "social": {"draft_enabled": True, "draft_hour": 8, "draft_at": "08:10", "draft_wait_until": "09:00", "draft_count": 3,
+               "news": True, "auto_publish": "10:30", "draft_think": "high", "skip_weekdays": [5, 6]},
     # 示意插圖（api/review_art.py → scripts/illustrate/gen_art.py）：要有 torch＋diffusers 的 Python，
     # 目前借 John 8 月做照片動畫風時建的環境；模型（SDXL base）在 hf_home 的快取裡，離線載入
     "imagegen": {"enabled": True, "python": "/home/john/media/ghibli/venv/bin/python",
                  "hf_home": "/mnt/raid1/llm_models/huggingface"},
     # 官網管理（y1web）：圖片存到官網的 media/uploads。site_url 只是備用：
     # 官網網址的正式值在「官網管理 → 官網網址」（y1web.web_settings k=site），換網域改那裡一次就好
-    "web": {"media_dir": "/home/john/y1web/media/uploads", "site_url": "http://192.168.1.88:8006"},
+    # import_think：「從網址翻譯文章」背景工作的思考強度（John 2026-11-13 沒有即時性的工作都用高度思考）；false＝關
+    "web": {"media_dir": "/home/john/y1web/media/uploads", "site_url": "http://192.168.1.88:8006",
+            "import_think": "high"},
 }
 
 

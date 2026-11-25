@@ -96,6 +96,45 @@ class CleanPost(unittest.TestCase):
             wa.clean_post("about", {"title": "x", "status": "hidden"}, NOW)
 
 
+class News(unittest.TestCase):
+    """最新消息（kind＝event）：選填的日期區間、日期種類、置頂。"""
+
+    def test_closed_one_day(self):
+        c = wa.clean_post("event", {"title": "國慶日公休", "status": "published", "start_date": "2026-10-10",
+                                    "pinned": True}, NOW)
+        self.assertEqual((c["start_date"].isoformat(), c["end_date"].isoformat()), ("2026-10-10", "2026-10-10"))
+        self.assertEqual(c["extra"], {"pinned": True, "date_kind": "closed"})
+        self.assertEqual(c["publish_at"], NOW)                 # 發佈沒填日期＝現在
+        self.assertEqual(c["slug"], "e261021153045")
+
+    def test_range_and_no_date(self):
+        c = wa.clean_post("event", {"title": "x", "start_date": "2026-02-16", "end_date": "2026-02-22",
+                                    "date_kind": "event"}, NOW)
+        self.assertEqual((c["end_date"] - c["start_date"]).days, 6)
+        self.assertEqual(c["extra"]["date_kind"], "event")
+        c = wa.clean_post("event", {"title": "x"}, NOW)
+        self.assertEqual((c["start_date"], c["end_date"]), (None, None))
+        self.assertFalse(c["extra"]["pinned"])
+
+    def test_bad_dates(self):
+        for body in ({"end_date": "2026-10-10"},                                   # 只有結束
+                     {"start_date": "2026-10-10", "end_date": "2026-10-09"},       # 倒過來
+                     {"start_date": "2026-01-01", "end_date": "2026-12-31"},       # 太長
+                     {"start_date": "2026-10-32"},
+                     {"start_date": "2026-10-10", "date_kind": "sale"}):
+            with self.assertRaises(wa.Invalid, msg=body):
+                wa.clean_post("event", {"title": "x", **body}, NOW)
+
+    def test_other_kinds_have_no_dates(self):
+        c = wa.clean_post("about", {"title": "x", "start_date": "2026-10-10"}, NOW)
+        self.assertEqual((c["start_date"], c["end_date"]), (None, None))
+
+    def test_row_dates_iso(self):
+        from datetime import date
+        r = wa._row({"extra": "{}", "publish_at": None, "start_date": date(2026, 10, 10), "end_date": None})
+        self.assertEqual((r["start_date"], r["end_date"]), ("2026-10-10", ""))
+
+
 class ShareQuote(unittest.TestCase):
     """好評分享的評論轉貼：拆解、遮名、節錄、用語檢查（內容都是編的測試資料）。"""
     PASTE = ("測試請忽略\n在地嚮導 · 52 則評論 · 120 張相片\n3 週前\n新\n"
@@ -239,6 +278,60 @@ class SiteUrl(unittest.TestCase):
         self.assertEqual(wa.get_site_url(Cur({"v": '{"base_url": "https://a.b:5177"}'}), "http://x/"), "https://a.b:5177")
         self.assertEqual(wa.get_site_url(Cur(None), "http://192.168.1.88:8006/"), "http://192.168.1.88:8006")
         self.assertEqual(wa.get_site_url(Cur({"v": '{"base_url": "壞掉"}'}), "http://x"), "http://x")
+
+
+class Slide(unittest.TestCase):
+    """首頁輪播（kind＝slide，John 2026-11-18）：期間選填、手機版保留位置、圖角小字。"""
+
+    def test_defaults(self):
+        c = wa.clean_post("slide", {"title": "店長在櫃檯迎接客人", "status": "published", "sort": "10"}, NOW)
+        self.assertEqual(c["extra"], {"focus": 70, "note": "", "pages": ["home"]})            # 沒送頁面＝只在首頁
+        self.assertEqual((c["start_date"], c["end_date"]), (None, None))
+        self.assertIsNone(c["publish_at"])                      # 輪播不用發佈日期，照排序
+        self.assertEqual(c["sort"], 10)
+        self.assertEqual(c["slug"], "s261021153045")
+
+    def test_open_ended_and_long_ranges(self):
+        c = wa.clean_post("slide", {"title": "x", "start_date": "2026-12-20"}, NOW)
+        self.assertEqual((c["start_date"].isoformat(), c["end_date"]), ("2026-12-20", None))      # 從那天起
+        c = wa.clean_post("slide", {"title": "x", "end_date": "2027-02-28"}, NOW)
+        self.assertEqual((c["start_date"], c["end_date"].isoformat()), (None, "2027-02-28"))      # 到那天為止
+        c = wa.clean_post("slide", {"title": "x", "start_date": "2026-01-01", "end_date": "2026-12-31"}, NOW)
+        self.assertEqual((c["end_date"] - c["start_date"]).days, 364)                             # 不受最新消息 60 天限制
+
+    def test_focus_and_note(self):
+        c = wa.clean_post("slide", {"title": "x", "focus": "25", "note": " 情境示意 "}, NOW)
+        self.assertEqual(c["extra"], {"focus": 25, "note": "情境示意", "pages": ["home"]})
+
+    def test_link(self):
+        # 11-19 晚「首頁輪播廣告」：圖角小字可以連到站內網址
+        c = wa.clean_post("slide", {"title": "x", "note": "每日聽練 7天送10點", "link": " /practice/ "}, NOW)
+        self.assertEqual(c["extra"]["link"], "/practice/")
+        self.assertNotIn("link", wa.clean_post("slide", {"title": "x", "note": "a", "link": ""}, NOW)["extra"])
+        for link in ("https://evil.com/", "//evil.com/x", "javascript:alert(1)", "/a b", "/<x>", "practice/"):
+            with self.assertRaises(wa.Invalid, msg=link):
+                wa.clean_post("slide", {"title": "x", "note": "a", "link": link}, NOW)
+        with self.assertRaises(wa.Invalid):
+            wa.clean_post("slide", {"title": "x", "link": "/practice/"}, NOW)              # 有連結要有字可以點
+
+    def test_pages(self):
+        c = wa.clean_post("slide", {"title": "x", "pages": ["column", "home", "nope"]}, NOW)
+        self.assertEqual(c["extra"]["pages"], ["home", "column"])                            # 只留認得的、照固定順序
+        with self.assertRaises(wa.Invalid):
+            wa.clean_post("slide", {"title": "x", "pages": []}, NOW)                         # 一個都沒勾
+        with self.assertRaises(wa.Invalid):
+            wa.clean_post("slide", {"title": "x", "pages": "home"}, NOW)
+
+    def test_bad(self):
+        for body in ({"start_date": "2026-10-10", "end_date": "2026-10-09"},
+                     {"focus": "33"}, {"focus": "abc"}, {"note": "一二三四五六七八九十一二三"},
+                     {"title": ""}):
+            with self.assertRaises(wa.Invalid, msg=body):
+                wa.clean_post("slide", {"title": "x", **body}, NOW)
+
+    def test_bigger_image(self):
+        out, _ = wa.process_image(img_bytes("PNG", (3000, 1500)), wa.SLIDE_MAX_EDGE)
+        self.assertEqual(max(Image.open(io.BytesIO(out)).size), 2000)
 
 
 class Images(unittest.TestCase):

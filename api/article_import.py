@@ -1006,6 +1006,9 @@ def start(url: str, html_text: Optional[str], site: str, category: str, with_ima
         return False
 
     def _run() -> None:
+        # 背景翻譯、沒人在等 → 高度思考（John 2026-11-13「沒有即時性的工作都用高度思考」）。
+        # fb_drafts._chat 看這條執行緒的設定，開的時候自動加思考預算；num_ctx 照舊 8192（一段原文最多 CHUNK_CHARS 字，放得下）
+        fb_drafts._tls.think = (getattr(config, "WEB", None) or {}).get("import_think", "high") or False
         try:
             r = build(url, html_text, site, category, with_images, actor)
             status.update(running=False, step="完成", result=r, error=None, finished_at=time.strftime("%H:%M"))

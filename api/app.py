@@ -45,7 +45,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
-from api import (article_import, care_reminders, dbpool, fb_drafts, fb_page, hearing, line_bot, motion_video, noah,
+from api import (article_import, care_reminders, dbpool, fb_drafts, fb_page, fb_points, hearing, line_bot, member_points,
+                 motion_video, noah,
                  post_art, post_card, review_art, stock_art, video_jobs, video_youtube, web_admin, youtube)
 from api.line_bot import router as line_router
 
@@ -126,6 +127,9 @@ def _current_user(request: Request) -> Dict[str, Any]:
 
 _CAPS = {
     "view_price": {"manager", "admin"},   # 價格欄位可視：經理以上
+    "points_edit": {"manager", "admin"},   # 會員集點作廢／恢復：經理以上（看紀錄是 customers 選單權限）
+    # 會員集點加點／扣點（門市聽檢、兌換贈品）：店員都可以（John 11-19「讓店員在點數管理中增加…減少」）
+    "points_adjust": {"user", "sales", "manager", "admin"},
 }
 
 
@@ -369,6 +373,14 @@ def create_app() -> FastAPI:
     @app.get("/fb-chat")
     def page_fb_chat(request: Request):
         return _page(request, "fb_chat.html", "fb-chat")
+
+    @app.get("/points")
+    def page_points(request: Request):
+        return _page(request, "points.html", "points")
+
+    @app.get("/fb-points")
+    def page_fb_points_moved():
+        return RedirectResponse("/points#fb", status_code=302)   # 11-19 粉專集點併進會員集點
 
     @app.get("/fb-posts")
     def page_fb_posts(request: Request):
@@ -1189,6 +1201,100 @@ def create_app() -> FastAPI:
                 raise HTTPException(422, "這則 AI 建議已經處理過了。")
         return {"ok": True}
 
+    # ── 會員集點（規則在 api/member_points.py、粉專留言在 api/fb_points.py）──────────
+    def _fbp_person(r: Dict[str, Any]) -> Dict[str, Any]:
+        d = _row_json(r)
+        if r.get("member"):
+            d["member"] = _row_json(r["member"])
+        return d
+
+    @app.get("/api/points")
+    def points_overview(request: Request):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        with _conn() as db, db.cursor() as cur:
+            return {"members": member_points.members(cur),
+                    "fb_people": [_fbp_person(r) for r in fb_points.people(cur)],
+                    "rows": member_points.all_records(cur),
+                    "can_edit": _can(user, "points_edit"), "can_adjust": _can(user, "points_adjust"),
+                    "kinds": [{"key": k, "label": v["label"], "default": v["default"], "sign": v["sign"]}
+                              for k, v in member_points.STAFF_KINDS.items()],
+                    "max_adjust": member_points.MAX_ADJUST, "note_max": member_points.NOTE_MAX,
+                    "dev_mode": fb_page.dev_mode()}
+
+    @app.get("/api/points/member/{mid}")
+    def points_member(request: Request, mid: int):
+        _require_menu(_current_user(request), "customers")
+        with _conn() as db, db.cursor() as cur:
+            return {"rows": member_points.member_records(cur, mid), "balance": member_points.balance(cur, mid)}
+
+    @app.post("/api/points/member/{mid}/adjust")
+    def points_adjust(request: Request, mid: int, body: Dict[str, Any] = Body(default={})):
+        """店員加點／扣點（要寫原因，會員看得到）。同月第二次門市聽檢回 need_confirm，畫面問過再送 confirm=true。"""
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        if not _can(user, "points_adjust"):
+            raise HTTPException(403, "這個帳號不能加減點數。")
+        b = body or {}
+        staff = user.get("realname") or user.get("username") or ""
+        try:
+            r = member_points.adjust(mid, str(b.get("kind") or ""), b.get("points"), str(b.get("reason") or ""),
+                                     staff, confirm=bool(b.get("confirm")))
+        except member_points.NeedConfirm as e:
+            return {"ok": False, "need_confirm": str(e)}
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except LookupError as e:
+            raise HTTPException(404, str(e))
+        except RuntimeError as e:
+            raise HTTPException(409, str(e))
+        return {"ok": True, **r}
+
+    @app.post("/api/points/ledger/{rid}/{action}")
+    def points_ledger_action(request: Request, rid: int, action: str, body: Dict[str, Any] = Body(default={})):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        if not _can(user, "points_edit"):
+            raise HTTPException(403, "作廢、恢復點數要經理以上的帳號。")
+        staff = user.get("realname") or user.get("username") or ""
+        try:
+            if action == "void":
+                member_points.void(rid, staff, str((body or {}).get("reason") or ""))
+                return {"ok": True, "status": "void"}
+            if action == "restore":
+                return {"ok": True, "status": member_points.restore(rid, staff)}
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except (LookupError, RuntimeError) as e:
+            raise HTTPException(409, str(e))
+        raise HTTPException(404)
+
+    @app.get("/api/fb/points")
+    def fb_points_list(request: Request, person: str = ""):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        with _conn() as db, db.cursor() as cur:
+            return {"rows": [_row_json(r) for r in fb_points.records(cur, person or None)]}
+
+    @app.post("/api/fb/points/{rid}/{action}")
+    def fb_points_action(request: Request, rid: int, action: str, body: Dict[str, Any] = Body(default={})):
+        user = _current_user(request)
+        _require_menu(user, "customers")
+        if not _can(user, "points_edit"):
+            raise HTTPException(403, "作廢、恢復點數要經理以上的帳號。")
+        staff = user.get("realname") or user.get("username") or ""
+        try:
+            if action == "void":
+                fb_points.void(rid, staff, str((body or {}).get("reason") or ""))
+                return {"ok": True, "status": "void"}
+            if action == "restore":
+                return {"ok": True, "status": fb_points.restore(rid, staff)}
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except LookupError as e:
+            raise HTTPException(409, str(e))
+        raise HTTPException(404)
+
     # ── 粉專貼文草稿（本機 AI 每天寫，管理者勾選才發；規則在 api/fb_drafts.py）──────────
     #   權限用 web（admin、manager）：發文是門市對外的聲音，和官網管理同一群人。
     _LINK_RE = re.compile(r"^https?://\S{3,490}$")
@@ -1242,6 +1348,7 @@ def create_app() -> FastAPI:
         return {"pending": pending, "recent": recent, "dev_mode": fb_page.dev_mode(),
                 "categories": fb_drafts.CATEGORIES, "column_categories": web_admin.COLUMN_CATEGORIES,
                 "auto": {"enabled": bool(cfg.get("draft_enabled", True)), "hour": int(cfg.get("draft_hour", 6)),
+                         "at": f"{fb_drafts.draft_start(date.today()):%H:%M}",
                          "count": int(cfg.get("draft_count", 3)), "news": bool(cfg.get("news", True)),
                          "publish_at": f"{dl:%H:%M}" if dl else "", "review_min": fb_drafts.AUTO_REVIEW_MIN}}
 
@@ -2770,7 +2877,7 @@ uncertain(沒把握的欄位名陣列)"""
                 "birthdays": birthdays, "warranty": warranty, "todos": todos,
                 "month": {"year": today.year, "month": today.month, "counts": counts}}
 
-    # ── 官網管理（y1web 的關於我們／聽力專欄／好評分享／使用小教室／補助小幫手）─────────
+    # ── 官網管理（y1web 的關於我們／最新消息／聽力專欄／好評分享／使用小教室／補助小幫手）─────────
     #   規則全在 api/web_admin.py（欄位檢查、圖片處理，有單元測試），這裡只管 I/O 與權限。
     #   資料寫進 y1web.web_posts；圖片存到官網的 media/uploads（config.WEB.media_dir）。
     _WEB_MEDIA = Path(config.WEB["media_dir"])
@@ -2805,7 +2912,9 @@ uncertain(沒把握的欄位名陣列)"""
         return {"kinds": web_admin.KINDS, "categories": web_admin.COLUMN_CATEGORIES,
                 "care_types": web_admin.CARE_TYPES, "subsidy_conditions": web_admin.SUBSIDY_CONDITIONS,
                 "statuses": web_admin.STATUSES, "site_url": site, "share_formats": web_admin.SHARE_FORMATS,
-                "share_platforms": platforms, "share_links": links, "art": review_art.enabled()}
+                "share_platforms": platforms, "share_links": links, "art": review_art.enabled(),
+                "news_date_kinds": web_admin.NEWS_DATE_KINDS, "slide_focus": web_admin.SLIDE_FOCUS,
+                "slide_pages": web_admin.SLIDE_PAGES}
 
     @app.get("/api/web/clicks")
     def web_clicks(request: Request):
@@ -3332,14 +3441,15 @@ uncertain(沒把握的欄位名陣列)"""
         user = _current_user(request)
         _require_menu(user, "web")
         data = await _web_image_body(request)
-        try:
-            name = web_admin.save_image(_WEB_MEDIA, data, thumb=True)
-        except web_admin.Invalid as e:
-            raise HTTPException(422, str(e))
         with _conn() as db, db.cursor() as cur:
             old = web_admin.get_post(cur, pid)
             if old is None:
                 raise HTTPException(404, "找不到這筆內容（可能已被刪除）。")
+            try:
+                name = web_admin.save_image(_WEB_MEDIA, data, thumb=True, max_edge=web_admin.SLIDE_MAX_EDGE
+                                            if old["kind"] == "slide" else web_admin.IMAGE_MAX_EDGE)
+            except web_admin.Invalid as e:
+                raise HTTPException(422, str(e))
             cur.execute(f"UPDATE {web_admin.TABLE} SET cover=%s, updated_by=%s, extra={web_admin.UPLOAD_COVER_KEYS} "
                         f"WHERE id=%s", (name, user["username"], datetime.now().strftime("%Y-%m-%d %H:%M"), pid))
             if old["cover"] != name:

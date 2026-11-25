@@ -20,3 +20,9 @@ archive/**/obj/
 # 客戶資料：LINE 傳來的照片（Smart Fit 畫面、聽檢報告）、Noah 匯出檔，一律不進版控
 doc/S__*
 *.nhax
+
+# 逐次修改前的工作備份（*.bak-日期-標記；本機快速退回用，同 TWIII、y1web 的慣例，2026-11-25 補）
+*.bak-*
+
+# 資料修改前的備份（例如粉專草稿 JSON）：內容是使用者資料，不進版控（同 TWIII 的 backups/ 慣例）
+backups/

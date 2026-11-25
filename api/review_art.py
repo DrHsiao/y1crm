@@ -98,8 +98,11 @@ def clean_prompt(v: Any) -> str:
 
 def ask_json(prompt: str, timeout: float = 120) -> Dict[str, Any]:
     """請本機 AI 想畫面，回 JSON（dict）；失敗回 {}。⚠ 純文字送 config.AI，永不帶 images。"""
-    payload = {"model": config.AI.get("model"), "stream": False, "think": False, "keep_alive": -1, "format": "json",
-               "options": {"temperature": 0.4, "num_predict": 400, "num_ctx": 8192},   # 跟常駐模型同一個 num_ctx，不同會逼 ollama 重載整顆模型
+    # 背景批次畫圖、沒人在等 → 高度思考（John 2026-11-13「沒有即時性的工作都用高度思考」）；思考會吃 num_predict，另外加 3000
+    think = (getattr(config, "IMAGEGEN", None) or {}).get("scene_think", "high") or False
+    payload = {"model": config.AI.get("model"), "stream": False, "think": think, "keep_alive": -1, "format": "json",
+               "options": {"temperature": 0.4, "num_predict": 400 + (3000 if think else 0),
+                           "num_ctx": 8192},   # 跟常駐模型同一個 num_ctx，不同會逼 ollama 重載整顆模型
                "messages": [{"role": "user", "content": prompt}]}
     req = urllib.request.Request(config.AI.get("url", "").rstrip("/") + "/api/chat", data=json.dumps(payload).encode(),
                                  headers={"Content-Type": "application/json"})

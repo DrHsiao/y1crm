@@ -1,5 +1,5 @@
 """
-web_admin.py — 「官網管理」：編輯官網（y1web，port 8006）的關於我們、聽力專欄、好評分享、使用小教室、補助小幫手。
+web_admin.py — 「官網管理」：編輯官網（y1web，port 8006）的關於我們、最新消息、聽力專欄、好評分享、使用小教室、補助小幫手。
 
 資料在 y1web 資料庫的 web_posts。y1crm 用自己的資料庫連線寫入；官網那邊的資料庫帳號只能讀。
 官網有 60 秒快取，存檔後最多一分鐘就會出現在官網上。
@@ -26,7 +26,27 @@ from PIL import Image, ImageOps
 
 from api import wording
 
-KINDS = {"about": "關於我們", "article": "聽力專欄", "share": "好評分享", "care": "使用小教室", "subsidy": "補助小幫手"}
+KINDS = {"slide": "輪播照片", "about": "關於我們", "event": "最新消息", "article": "聽力專欄", "share": "好評分享",
+         "care": "使用小教室", "subsidy": "補助小幫手"}
+# 首頁輪播（kind＝slide，John 2026-11-18）：官網首頁最上面整片淡入淡出的大照片（店長形象、門市情境），標題文字固定。
+#   標題＝照片說明（替代文字）；排序小的在前；起訖日期選填（節日、活動照片到期自動下架，不限 NEWS_MAX_DAYS）；
+#   extra.focus＝手機版裁切保留的水平位置（%）；extra.note＝圖角小字（例：情境示意）。官網 y1web app/content.slides 讀，要一起改。
+SLIDE_FOCUS = {25: "偏左", 50: "中間", 70: "偏右（人物在右邊）", 85: "最右"}
+# 11-19 John：「每個子主題的上方也用輪播，多做一些讓每次都不同」→ 每張勾選要出現在哪些頁面（extra.pages，至少一個；
+#   舊資料沒有＝只在首頁）。代碼和名稱與官網 y1web app/content.py 的 SLIDE_PAGES 相同，要一起改。
+SLIDE_PAGES = {"home": "首頁", "about": "關於我們、最新消息", "store": "服務據點", "services": "服務項目",
+               "products": "助聽器介紹、配件", "care": "使用小教室", "booking": "線上預約、到府服務",
+               "column": "聽力專欄", "share": "好評分享", "faq": "常見問題", "hearing": "聽力測驗、聽損模擬",
+               "subsidy": "補助小幫手", "member": "會員"}
+SLIDE_NOTE_MAX = 12
+# 11-19 晚 John 要「首頁輪播廣告」→ 圖角小字可以加連結（extra.link，只收官網自己的網址，例：/practice/）。官網 content.slides 讀
+SLIDE_LINK_RE = re.compile(r"^/(?!/)[A-Za-z0-9/_\-.~%?=&#]{0,150}$")
+SLIDE_MAX_EDGE = 2000       # 首頁整片鋪滿：比一般圖（IMAGE_MAX_EDGE）大，寬螢幕才不糊
+# 最新消息（kind＝event，John 2026-11-13）：公休、活動等公告，放在官網「關於我們」選單底下（/news）。
+#   日期（start_date～end_date）選填，官網在公告上方標出來；置頂（extra.pinned）的排最前面，有填日期的過了結束日自動不再置頂。
+#   日期種類的代碼和名稱與官網 y1web app/content.py 的 NEWS_DATE_KINDS 相同，要一起改。
+NEWS_DATE_KINDS = {"closed": "休息日期", "event": "活動日期"}
+NEWS_MAX_DAYS = 60          # 日期區間上限（多半是打錯年份或月份）
 # 下面三份和官網 y1web app/content.py 的 COLUMN_CATEGORIES／CARE_TYPES／SUBSIDY_CONDITIONS 相同，要一起改
 COLUMN_CATEGORIES = ["助聽器知識", "聽力保健", "聽能復健", "補助申請", "生活樂活"]
 # 使用小教室「適用的助聽器」：都不勾＝每一種都適用（官網產品頁依外型／電源帶出相關教學）
@@ -165,6 +185,39 @@ def clean_source(body: Dict[str, Any]) -> Optional[Dict[str, str]]:
     return {"url": url, "title": title, "site": site, "mode": mode}
 
 
+def _iso_date(body: Dict[str, Any], key: str, label: str) -> Optional[date]:
+    v = str(body.get(key) or "").strip()
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        raise Invalid(f"{label}格式不正確。")
+
+
+def news_dates(body: Dict[str, Any]) -> Tuple[Optional[date], Optional[date]]:
+    """最新消息的日期：都空白＝沒有日期；只填開始＝只有一天；結束不能早於開始、區間不超過 NEWS_MAX_DAYS 天。"""
+    start, end = _iso_date(body, "start_date", "開始日期"), _iso_date(body, "end_date", "結束日期")
+    if start is None:
+        if end is not None:
+            raise Invalid("請填開始日期（只休一天的，結束日期可以空白）。")
+        return None, None
+    end = end or start
+    if end < start:
+        raise Invalid("結束日期不能早於開始日期。")
+    if (end - start).days + 1 > NEWS_MAX_DAYS:
+        raise Invalid(f"日期區間超過 {NEWS_MAX_DAYS} 天，請檢查年份或月份。")
+    return start, end
+
+
+def slide_dates(body: Dict[str, Any]) -> Tuple[Optional[date], Optional[date]]:
+    """首頁輪播的期間：都空白＝一直顯示；可以只填開始（從那天起）或只填結束（到那天為止）；結束不能早於開始。"""
+    start, end = _iso_date(body, "start_date", "開始日期"), _iso_date(body, "end_date", "結束日期")
+    if start and end and end < start:
+        raise Invalid("結束日期不能早於開始日期。")
+    return start, end
+
+
 def auto_slug(kind: str, now: Optional[datetime] = None) -> str:
     """沒填網址代稱時自動產生，例如 article → a261021153045。"""
     now = now or datetime.now()
@@ -203,12 +256,13 @@ def clean_post(kind: str, body: Dict[str, Any], now: Optional[datetime] = None) 
             out["publish_at"] = datetime.combine(date.fromisoformat(pub), datetime.min.time()).replace(hour=9)
         except ValueError:
             raise Invalid("發佈日期格式不正確。")
-    elif kind in ("article", "share") and status == "published":
+    elif kind in ("article", "share", "event") and status == "published":
         out["publish_at"] = now.replace(microsecond=0)     # 發佈時沒填日期＝今天
     else:
         out["publish_at"] = None
 
     out["category"] = None
+    out["start_date"] = out["end_date"] = None
     if kind == "article":
         cat = body.get("category") or ""
         if cat not in COLUMN_CATEGORIES:
@@ -220,6 +274,34 @@ def clean_post(kind: str, body: Dict[str, Any], now: Optional[datetime] = None) 
             extra["source"] = src
     elif kind == "about":
         extra = {"en": _text(body, "en", False, "英文小標") or ""}
+    elif kind == "slide":
+        out["start_date"], out["end_date"] = slide_dates(body)
+        try:
+            focus = int(body.get("focus") if body.get("focus") not in (None, "") else 70)
+        except (TypeError, ValueError):
+            raise Invalid("手機版保留位置不正確。")
+        if focus not in SLIDE_FOCUS:
+            raise Invalid("手機版保留位置不正確。")
+        note = str(body.get("note") or "").strip()
+        if len(note) > SLIDE_NOTE_MAX:
+            raise Invalid(f"圖角小字最多 {SLIDE_NOTE_MAX} 個字。")
+        pages = _picks(body, "pages", SLIDE_PAGES) if "pages" in body else ["home"]
+        if not pages:
+            raise Invalid("請勾選這張照片要出現在哪些頁面。")
+        link = str(body.get("link") or "").strip()
+        if link and not SLIDE_LINK_RE.match(link):
+            raise Invalid("連結請填官網裡的網址，用 / 開頭（例：/practice/）。")
+        if link and not note:
+            raise Invalid("有連結的話，請填圖角小字（客人點的就是這幾個字）。")
+        extra = {"focus": focus, "note": note, "pages": pages}
+        if link:
+            extra["link"] = link
+    elif kind == "event":
+        out["start_date"], out["end_date"] = news_dates(body)
+        dk = body.get("date_kind") or "closed"
+        if dk not in NEWS_DATE_KINDS:
+            raise Invalid("日期種類不正確。")
+        extra = {"pinned": bool(body.get("pinned")), "date_kind": dk}
     elif kind == "care":
         extra = {"types": _picks(body, "types", CARE_TYPES), "video": _url(body, "video", "影片連結"),
                  "keywords": clean_keywords(body.get("keywords"))}
@@ -817,8 +899,8 @@ def set_share_links(cur, body: Dict[str, Any], actor: str) -> Dict[str, str]:
 
 # ── 圖片 ─────────────────────────────────────────────────────
 
-def process_image(data: bytes) -> Tuple[bytes, str]:
-    """上傳的圖 → (WebP 內容, 檔名)。轉正（手機照片的 EXIF 方向）、縮到 1600px、去掉 EXIF（含 GPS）。"""
+def process_image(data: bytes, max_edge: int = IMAGE_MAX_EDGE) -> Tuple[bytes, str]:
+    """上傳的圖 → (WebP 內容, 檔名)。轉正（手機照片的 EXIF 方向）、縮到 1600px（首頁輪播 2000px）、去掉 EXIF（含 GPS）。"""
     if not data:
         raise Invalid("沒有收到圖片。")
     Image.MAX_IMAGE_PIXELS = IMAGE_MAX_PIXELS
@@ -836,7 +918,7 @@ def process_image(data: bytes) -> Tuple[bytes, str]:
     im = ImageOps.exif_transpose(im)
     has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
     im = im.convert("RGBA" if has_alpha else "RGB")
-    im.thumbnail((IMAGE_MAX_EDGE, IMAGE_MAX_EDGE), Image.LANCZOS)
+    im.thumbnail((max_edge, max_edge), Image.LANCZOS)
     buf = io.BytesIO()
     im.save(buf, "WEBP", quality=82, method=4)
     out = buf.getvalue()
@@ -864,9 +946,9 @@ def _write(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
-def save_image(media_dir: Path, data: bytes, thumb: bool = False) -> str:
+def save_image(media_dir: Path, data: bytes, thumb: bool = False, max_edge: int = IMAGE_MAX_EDGE) -> str:
     """處理後存到官網的 media/uploads；同一張圖只存一次。thumb＝順便做卡片圖（封面圖）。回傳檔名。"""
-    out, name = process_image(data)
+    out, name = process_image(data, max_edge)
     return store_image(media_dir, out, name, thumb)
 
 
@@ -955,15 +1037,18 @@ def _row(r: Dict[str, Any]) -> Dict[str, Any]:
     extra = r.get("extra")
     extra = json.loads(extra) if isinstance(extra, (str, bytes)) else (extra or {})
     pub = r.get("publish_at")
+    for k in ("start_date", "end_date"):
+        if k in r:
+            r = {**r, k: r[k].isoformat() if r[k] else ""}
     return {**r, "extra": extra, "publish_date": pub.date().isoformat() if pub else "",
             "updated_at": r["updated_at"].strftime("%Y-%m-%d %H:%M") if r.get("updated_at") else ""}
 
 
 def list_posts(cur, kind: str) -> List[Dict[str, Any]]:
     # 關於我們、使用小教室、補助小幫手照排序（就是官網上由上而下的順序）；專欄與好評新的在前
-    order = "sort, id" if kind in ("about", "care", "subsidy") else "(publish_at IS NULL) DESC, publish_at DESC, id DESC"
-    cur.execute(f"SELECT id, kind, slug, title, summary, body_md, category, status, publish_at, sort, "
-                f"cover, extra, updated_by, updated_at FROM {TABLE} WHERE kind=%s ORDER BY {order}", (kind,))
+    order = "sort, id" if kind in ("slide", "about", "care", "subsidy") else "(publish_at IS NULL) DESC, publish_at DESC, id DESC"
+    cur.execute(f"SELECT id, kind, slug, title, summary, body_md, category, status, publish_at, start_date, end_date, "
+                f"sort, cover, extra, updated_by, updated_at FROM {TABLE} WHERE kind=%s ORDER BY {order}", (kind,))
     return [_row(r) for r in cur.fetchall()]
 
 
@@ -993,13 +1078,15 @@ def save_post(cur, clean: Dict[str, Any], actor: str, pid: Optional[int] = None)
             raise Invalid(f"這則評論已經轉貼過了（{r['title']}）。")
     vals = (clean["slug"], clean["title"], clean["summary"], clean["body_md"], clean["category"],
             clean["status"], clean["publish_at"], clean["sort"], json.dumps(clean["extra"], ensure_ascii=False), actor)
+    dates = (clean.get("start_date"), clean.get("end_date"))     # 只有最新消息有；其他種類是 None
     if pid is None:
         cur.execute(f"INSERT INTO {TABLE} (slug, title, summary, body_md, category, status, publish_at, sort, extra, "
-                    f"updated_by, kind) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", vals + (clean["kind"],))
+                    f"updated_by, kind, start_date, end_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    vals + (clean["kind"],) + dates)
         return cur.lastrowid
     cur.execute(f"UPDATE {TABLE} SET slug=%s, title=%s, summary=%s, body_md=%s, category=%s, status=%s, "
-                f"publish_at=%s, sort=%s, extra=%s, updated_by=%s WHERE id=%s AND kind=%s",
-                vals + (pid, clean["kind"]))
+                f"publish_at=%s, sort=%s, extra=%s, updated_by=%s, start_date=%s, end_date=%s WHERE id=%s AND kind=%s",
+                vals + dates + (pid, clean["kind"]))
     return pid
 
 

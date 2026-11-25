@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block title %}會員集點 — y1crm{% endblock %}
+{% block content %}
+  <!-- ── 會員集點（每日聽練／線上聽力測驗／來店打卡／粉專活動／兌換；規則在 api/member_points.py）── -->
+  <div class="card">
+    <div class="section-row" style="margin-bottom:.8rem; flex-wrap:wrap; gap:.6rem;">
+      <h3 style="flex:1; min-width:10rem;">會員集點<span class="lh" id="pt-count"></span></h3>
+      <div class="seg" id="pt-view" data-value="members">
+        <button data-v="members">依會員</button><button data-v="fb">粉專留言</button><button data-v="rows">全部紀錄</button>
+      </div>
+    </div>
+    <div class="banner warning hidden" id="pt-dev" style="margin:0 0 .8rem;">
+      目前是開發模式：Facebook 綁定碼的 Messenger 回覆只記錄、不會真的送出。
+    </div>
+
+    <div id="pt-q-wrap" style="margin:0 0 .7rem;">
+      <input type="search" id="pt-q" placeholder="找會員：會員編號、名字、門市客人、手機" style="max-width:24rem;" autocomplete="off">
+    </div>
+    <div class="table-wrap" id="pt-members-wrap">
+      <table>
+        <thead><tr>
+          <th>會員</th><th>門市客人</th><th>每日聽練</th><th>線上聽力測驗</th><th>來店打卡</th><th>粉專活動</th><th>兌換／調整</th><th>目前點數</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pt-members"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap hidden" id="pt-fb-wrap">
+      <table>
+        <thead><tr>
+          <th>留言者</th><th>官網會員</th><th>累積點數</th><th>計分的貼文</th><th>全部留言</th><th>最近留言</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pt-fb"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap hidden" id="pt-rows-wrap">
+      <table>
+        <thead><tr>
+          <th>時間</th><th>會員／留言者</th><th>項目</th><th>內容</th><th>狀態</th><th>點數</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pt-rows"></tbody>
+      </table>
+    </div>
+
+    <p class="hint" style="margin-top:.8rem;">
+      <b>來店打卡</b>：客人在 Facebook 粉專打卡、把手機給您看 → 在「依會員」找到客人（會員編號、名字、手機）→ 按 <b>「來店打卡 +10」</b> 就加好了
+      （原因自動寫「來店打卡（日期）」，每月第一次；同一個月第二次會再問一次）；加好會跳出 Google 地圖、Facebook 粉專兩個 QR，可以給客人掃。
+      門市聽力檢查不再給點。<br>
+      <b>兌換贈品扣點</b>：「加減點／紀錄」→ 選「兌換贈品」、填點數、寫原因（會員在官網看得到）；點數不夠不能扣。客人可以在官網會員頁看到自己的會員編號。<br>
+      自動累積：<b>每日聽練</b>一天練完 1 回 1 點（只記當天、前一天同步上來的），連續 7 天再 +10 點（斷掉從頭算；「每日聽練」欄含這個獎勵）；<b>線上聽力測驗</b>會員按「存到會員紀錄」，每個月第一次 10 點；
+      <b>粉專活動</b>同一則貼文留言 1 點、刪留言就不算（Facebook 不提供按讚、分享名單）。
+      客人在官網「會員」頁取得綁定碼、用 Messenger 傳給粉專，就會連上 Facebook。會員自己存的線上聽力測驗結果，門市看不到。<br>
+      登記錯了：直接用「其他加點／其他扣點」補回來，原因寫清楚（例如：11/19 兌換重複登記，補回 10 點）；會員兩筆都看得到。
+    </p>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/points.js?v={{ v }}-1120b"></script>{% endblock %}

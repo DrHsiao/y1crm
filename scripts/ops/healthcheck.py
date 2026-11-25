@@ -191,7 +191,12 @@ def check_services(p, info):
             p.append((f"loop:{f[0]}", f"服務 {f[0]} 一直在重啟（已重啟 {n.strip()} 次）", 2))
     rc, out = sh(["docker", "ps", "--format", "{{.Names}}"])
     running = set(out.split())
-    for c in CONTAINERS + CONTAINERS_EXTRA:
+    # 夜班（night_mode.sh 寫 /run/llm_mode=night）：三卡容器停著是正常的，改看夜間單卡容器
+    try:
+        night = open("/run/llm_mode").read().strip() == "night"
+    except OSError:
+        night = False
+    for c in (["ollama-night"] if night else CONTAINERS) + CONTAINERS_EXTRA:
         if c not in running:
             p.append((f"ctr:{c}", f"容器 {c} 沒有在跑", 2))
     info.append(f"服務 {len(SERVICES) - len(down)}/{len(SERVICES)} 正常、容器 {len([c for c in CONTAINERS if c in running])}/{len(CONTAINERS)}")

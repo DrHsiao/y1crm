@@ -10,6 +10,9 @@ John 2026-11-08：先是「『助聽器知識』類別中的圖片不用吉卜�
 - 標記：extra.cover_src＝"stock"（圖庫照片）、cover_credit（來源、作者、授權）；粉專草稿 image_meta.src＝"stock"。
   AI 批次重畫不會動到圖庫照片。
 - 挑圖（pick）：依標題和內文比對 tags，在夠相關的裡面挑用得最少的；都不相關時用標「通用」的。
+- John 2026-11-23：「生活時事貼文在 Pexels 儘量找年輕貌美的，老人和醫護人員也找較年輕且樣貌好的」→
+  清單的 look＝1：年輕好看、氣色好的長輩（最好有年輕家人陪）、年輕醫護，同樣相關時先挑（LOOK_BONUS）；
+  retired＝原因：看起來很老、氣色差、陰暗的，不再挑（舊文章的封面不動）。
 """
 from __future__ import annotations
 
@@ -27,6 +30,7 @@ OUT_W, OUT_H = 1600, 1067             # 3:2，和官網卡片一樣
 WARM = (255, 244, 230)                # 暖色調（官網米白底）
 GENERAL_TAG = "通用"                  # 什麼主題都配得上的照片（沒有相關的照片時從這些挑）
 REUSE_PENALTY = 8                     # 已經被幾篇用了，每篇扣這麼多分（約四個兩字標籤），免得相鄰文章同一張
+LOOK_BONUS = 3                        # look＝1（年輕好看）的加分：比一個兩字標籤多一點；相關度還是優先（棉花棒題不會換成醫師照）
 
 
 def load(path: Path = LIBRARY) -> List[Dict[str, Any]]:
@@ -39,7 +43,7 @@ def load(path: Path = LIBRARY) -> List[Dict[str, Any]]:
 
 
 def available(items: Sequence[Dict[str, Any]], media: Optional[Path] = None) -> List[Dict[str, Any]]:
-    out = [x for x in items if x.get("file") and web_admin.IMAGE_NAME_RE.match(x["file"])]
+    out = [x for x in items if x.get("file") and web_admin.IMAGE_NAME_RE.match(x["file"]) and not x.get("retired")]
     return [x for x in out if media is None or (media / x["file"]).is_file()]
 
 
@@ -67,7 +71,8 @@ def pick(items: Sequence[Dict[str, Any]], text: str, used: Optional[Dict[str, in
     else:
         cands = [x for x in cands if GENERAL_TAG in x.get("tags", [])] or cands
     order = {x["id"]: i for i, x in enumerate(items)}
-    return max(cands, key=lambda x: (score(x, text) - REUSE_PENALTY * used.get(x["file"], 0),
+    return max(cands, key=lambda x: (score(x, text) + LOOK_BONUS * int(x.get("look") or 0)
+                                     - REUSE_PENALTY * used.get(x["file"], 0),
                                      -used.get(x["file"], 0), -order[x["id"]]))
 
 

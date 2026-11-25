@@ -79,6 +79,7 @@ key = ""
 # 官網管理（y1web 官網的關於我們／聽力專欄／好評分享）：上傳的圖片存到官網的 media/uploads
 media_dir = "/home/john/y1web/media/uploads"
 site_url  = "http://192.168.1.88:8006"   # 備用：正式值在「官網管理 → 官網網址」，換網域改那裡
+import_think = "high"    # 「從網址翻譯文章」在背景跑、沒人在等 → 高度思考；false＝關
 
 [social]
 # 粉專貼文草稿（api/fb_drafts.py；CRM「粉專貼文」）：本機 AI 每天寫幾則，預設勾選；
@@ -88,6 +89,7 @@ draft_hour    = 6        # 0–23，這個整點之後寫當天的（開店前�
 draft_count   = 3
 news          = true     # 生活新聞、醫療時事（中央社、衛福部、疾管署、自由時報的 RSS）
 auto_publish  = "10:30"  # HH:MM；留空＝不自動發，一律手動按「發佈勾選的」
+draft_think   = "high"   # 每日預製用高度思考（新聞把關、正文、官網關鍵字、圖卡標題）；false＝關。「多寫一則」有人在等，不思考
 
 [imagegen]
 # 好評分享沒有圖片的評論，依文意畫示意插圖（api/review_art.py）。只跑在 0002 那張卡（以序號認卡）

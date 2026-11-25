@@ -138,6 +138,15 @@ class Plan(unittest.TestCase):
         self.assertNotIn("care-cold", july)                     # 冬天的題目夏天不出
         self.assertIn("care-sweat", july)
 
+    def test_hot_first(self):
+        # 11-22 john「跟著人流走」：同類別裡沒用過的 hot 題目先出；hot 都用過了才輪到其他題目
+        hot = {t.key for t in fd.TOPICS if t.cat == "health" and t.hot}
+        self.assertGreaterEqual(len(hot), 5)
+        picks = {fd.topic_spec("health", date(2026, 11, 23), set(), random.Random(i))["topic_key"] for i in range(100)}
+        self.assertEqual(picks, hot)
+        rest = {fd.topic_spec("health", date(2026, 11, 23), hot, random.Random(i))["topic_key"] for i in range(100)}
+        self.assertFalse(rest & hot)
+
     def test_titles(self):
         self.assertEqual(fd.topic_title("問大家：最喜歡的聲音？"), "最喜歡的聲音？")
         self.assertEqual(fd.topic_title("官網的「聽損模擬」：讓家人聽聽看"), "官網的「聽損模擬」")
@@ -287,7 +296,8 @@ class Auto(unittest.TestCase):
 
     def row(self, **kw):
         r = {"day": self.D, "created_by": None, "status": "new", "picked": 1, "web_sync": 0,
-             "created_at": datetime(2026, 11, 9, 6, 0), "message": "冬天記得除濕。", "seo": None}
+             "created_at": datetime(2026, 11, 9, 6, 0), "message": "冬天記得除濕。", "seo": None,
+             "meta": "flash-next 高度思考 60s " + fd.DUP_MARK}
         r.update(kw)
         return r
 
@@ -309,6 +319,9 @@ class Auto(unittest.TestCase):
             self.assertFalse(fd.auto_status(self.row(created_at=datetime(2026, 11, 9, 9, 40)), now)[0])   # 太晚寫好
             self.assertFalse(fd.auto_status(self.row(), datetime(2026, 11, 10, 10, 30))[0])  # 隔天不補前一天的
             self.assertFalse(fd.auto_status(self.row(web_sync=1), now)[0])                  # 要同步卻沒有官網標題
+            self.assertEqual(fd.auto_status(self.row(meta="flash-next 60s"), now),            # 沒做過查重
+                             (False, "沒有做過重複檢查，不會自動發，請看過再手動發"))
+            self.assertFalse(fd.auto_status(self.row(meta=None), now)[0])
         with mock.patch.dict(fd.config.SOCIAL, {"auto_publish": ""}):
             self.assertEqual(fd.auto_status(self.row(), now), (False, ""))
         later = datetime(2026, 11, 9, 11, 0)
@@ -319,5 +332,306 @@ class Auto(unittest.TestCase):
             self.assertTrue(fd.auto_status(self.row(), later, run=True)[0])            # 主機停機晚跑：排程照樣會發
 
 
+class NewsFit(unittest.TestCase):
+    """John 2026-11-13：硬扯進來的新聞不要 → 寫之前本機 AI 把關，不到 4 分的換下一則。"""
+
+    @staticmethod
+    def item(title):
+        return {"title": title, "desc": "", "link": "https://x/" + title, "source": "測試", "when": None}
+
+    def test_skips_low_scores_and_takes_first_fit(self):
+        replies = iter(['{"score": 2, "repeat": false}', '{"score": 5, "repeat": true}',
+                        '{"score": 4, "repeat": false, "reason": "耳朵"}', '{"score": 5, "repeat": false}'])
+        with mock.patch.object(fd, "_chat", side_effect=lambda *a, **k: next(replies)) as chat:
+            got = fd.fit_news([self.item("流標"), self.item("又是低溫"), self.item("擤鼻涕"), self.item("聽損")])
+        self.assertEqual([x["title"] for x in got], ["擤鼻涕"])  # 2 分跳過、5 分但重複也跳過
+        self.assertEqual(chat.call_count, 3)                    # 找到就停，不多問
+
+    def test_repeat_or_missing_repeat_fails(self):
+        for reply in ('{"score": 5, "repeat": true}', '{"score": 5}'):
+            with mock.patch.object(fd, "_chat", return_value=reply):
+                s, why = fd.news_fit(self.item("a"))
+            self.assertLess(s, fd.NEWS_FIT_MIN)
+            self.assertTrue(why.startswith("重複"))
+
+    def test_none_fit_or_bad_reply_returns_empty(self):
+        with mock.patch.object(fd, "_chat", return_value="不是 JSON"):
+            self.assertEqual(fd.news_fit(self.item("a"))[0], 0)  # 判斷失敗＝不寫
+            self.assertEqual(fd.fit_news([self.item("a"), self.item("b")]), [])
+        with mock.patch.object(fd, "_chat", return_value='{"score": 3, "repeat": false}') as chat:
+            self.assertEqual(fd.fit_news([self.item(str(i)) for i in range(20)], tries=3), [])
+        self.assertEqual(chat.call_count, 3)                    # 最多看 tries 則
+
+    def test_recent_topics_in_prompt(self):
+        with mock.patch.object(fd, "_chat", return_value='{"score": 3}') as chat:
+            fd.news_fit(self.item("擤鼻涕"), ["擤鼻涕做錯恐害中耳炎"])
+        prompt = chat.call_args[0][0][0]["content"]
+        self.assertIn("・擤鼻涕做錯恐害中耳炎", prompt)
+        self.assertNotIn("{recent}", prompt)
+        self.assertTrue(chat.call_args.kwargs.get("json_mode"))
+
+    def test_plan_without_news_falls_back(self):
+        specs = fd.plan(date(2026, 11, 13), 3, set(), [], [], "")
+        self.assertEqual(len(specs), 3)
+        self.assertNotIn("news", [s["category"] for s in specs])
+
+
+class Think(unittest.TestCase):
+    """John 2026-11-13：預製、沒有即時性的工作都用高度思考 → 只有每日排程那條執行緒開。"""
+
+    @staticmethod
+    def payload(think):
+        import json
+        got = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return json.dumps({"message": {"content": "ok"}}).encode()
+
+        def fake(req, timeout):
+            got["p"] = json.loads(req.data)
+            return Resp()
+
+        with mock.patch.object(fd.urllib.request, "urlopen", fake):
+            fd._tls.think = think
+            try:
+                fd._chat([{"role": "user", "content": "x"}], 5)
+            finally:
+                fd._tls.think = False
+        return got["p"]
+
+    def test_default_off(self):
+        p = self.payload(False)
+        self.assertIs(p["think"], False)
+        self.assertEqual(p["options"]["num_predict"], 700)
+        self.assertEqual(p["options"]["num_ctx"], 8192)
+
+    def test_on_adds_budget_keeps_ctx(self):
+        p = self.payload("high")
+        self.assertEqual(p["think"], "high")
+        self.assertEqual(p["options"]["num_predict"], 700 + fd.THINK_BUDGET)
+        self.assertEqual(p["options"]["num_ctx"], 8192)                 # 不同 ctx 會讓共用的 ollama 整顆重載
+
+    def test_run_daily_turns_on_then_off(self):
+        seen = []
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_think": "high"}), \
+                mock.patch.object(fd, "_run_daily", side_effect=lambda d, n: seen.append(fd._think()) or 0):
+            fd.run_daily()
+        self.assertEqual(seen, ["high"])
+        self.assertFalse(fd._think())
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_think": "high"}), \
+                mock.patch.object(fd, "_run_daily", side_effect=RuntimeError("x")):
+            with self.assertRaises(RuntimeError):
+                fd.run_daily()
+        self.assertFalse(fd._think())                                    # 出錯也要關回來
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_think": False}), \
+                mock.patch.object(fd, "_run_daily", side_effect=lambda d, n: seen.append(fd._think()) or 0):
+            fd.run_daily()
+        self.assertIs(seen[-1], False)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class WeekendAndCount(unittest.TestCase):
+    """John 2026-11-15：週六日不發、移到週一；沒有合適新聞的那天少一則。"""
+
+    def test_post_day(self):
+        self.assertFalse(fd.post_day(date(2026, 11, 14)))      # 週六
+        self.assertFalse(fd.post_day(date(2026, 11, 15)))      # 週日
+        self.assertTrue(fd.post_day(date(2026, 11, 16)))       # 週一
+        self.assertTrue(fd.post_day(date(2026, 11, 13)))       # 週五
+        with mock.patch.dict(fd.config.SOCIAL, {"skip_weekdays": []}):
+            self.assertTrue(fd.post_day(date(2026, 11, 15)))
+
+    def test_daily_count(self):
+        self.assertEqual(fd.daily_count(3, True, []), 2)          # 沒新聞：少一則，不拿題庫補
+        self.assertEqual(fd.daily_count(3, True, [news("聽損")]), 3)
+        self.assertEqual(fd.daily_count(3, False, []), 3)         # 設定不寫新聞：照原本則數
+        self.assertEqual(fd.daily_count(0, True, []), 0)
+
+    def test_fresh_only_runs_out(self):
+        cares = {t.key for t in fd.TOPICS if t.cat == "care"}
+        self.assertIsNone(fd.topic_spec("care", date(2026, 7, 1), cares, random.Random(1), fresh_only=True))
+        self.assertIsNotNone(fd.topic_spec("care", date(2026, 7, 1), cares, random.Random(1)))   # 舊行為：用完重出
+        out = fd.plan(date(2026, 11, 16), 2, {t.key for t in fd.TOPICS}, [], [], SITE, fresh_only=True)
+        self.assertEqual(out, [])                                   # 題庫都用過：當天不硬湊
+
+
+class Dup(unittest.TestCase):
+    """John 2026-11-15：生成後檢查 3 個月內重複的內容換掉，本機 AI 確實做到。"""
+    D = date(2026, 11, 16)
+    WATER = ("不小心沾到水或流汗受潮怎麼辦？先取出電池、擦乾，再放進乾燥盒除濕。\n\n"
+             "—— 韻譯助聽器・官網 ——\n🎧 每日聽練：https://y1ear.com/practice/\n\n#睿聲助聽器中正店")
+
+    def hist(self, n=1, **kw):
+        rows = []
+        for i in range(n):
+            r = {"id": 34 - i, "day": date(2026, 11, 14), "category": "care", "topic": f"題目{i}",
+                 "topic_key": f"k{i}", "web_post_id": None, "source_url": None, "message": f"第 {i} 則：每晚放乾燥盒。"}
+            r.update(kw)
+            rows.append(r)
+        return rows
+
+    def spec(self, **kw):
+        s = {"category": "web", "topic_key": "web:278", "topic": "助聽器受潮怎麼辦", "web_post_id": 278,
+             "source_url": None}
+        s.update(kw)
+        return s
+
+    def test_hard_rules_without_ai(self):
+        with mock.patch.object(fd, "_chat", side_effect=AssertionError("不該問 AI")):
+            self.assertTrue(fd.dup_check(self.spec(topic_key="k0"), "x", self.hist())[0])
+            self.assertTrue(fd.dup_check(self.spec(), "x", self.hist(web_post_id=278))[0])
+            self.assertTrue(fd.dup_check(self.spec(source_url="https://n/1"), "x", self.hist(source_url="https://n/1"))[0])
+            rep, why = fd.dup_check(self.spec(), self.WATER, self.hist(message=self.WATER.replace("怎麼辦", "")))
+            self.assertTrue(rep)
+            self.assertIn("#34", why)
+            self.assertEqual(fd.dup_check(self.spec(), "x", []), (False, "最近沒有貼文可比"))
+
+    def test_text_sim_ignores_footer(self):
+        other = "完全不同的內容：和長輩聊天要面對面。\n\n—— 韻譯助聽器・官網 ——\n🎧 每日聽練：https://y1ear.com/practice/"
+        self.assertLess(fd.text_sim(self.WATER, other), 0.2)
+        self.assertGreater(fd.text_sim(self.WATER, self.WATER), 0.99)
+
+    def test_ai_must_say_false(self):
+        with mock.patch.object(fd, "_chat", return_value='{"repeat": false, "same_as": "", "reason": "不同"}') as chat:
+            rep, _ = fd.dup_check(self.spec(), self.WATER, self.hist())
+        self.assertIs(rep, False)
+        prompt = chat.call_args[0][0][0]["content"]
+        self.assertIn("#34（11-14，保養小教室）題目0｜", prompt)
+        self.assertIn("助聽器受潮怎麼辦", prompt)
+        self.assertNotIn("韻譯助聽器・官網", prompt)             # 只比本文
+        self.assertTrue(chat.call_args.kwargs.get("json_mode"))
+        for bad in ('{"same_as": ""}', '{"repeat": "false"}', "不是 JSON", '{"repeat": null}'):
+            with mock.patch.object(fd, "_chat", return_value=bad) as chat:
+                rep, why = fd.dup_check(self.spec(), self.WATER, self.hist())
+            self.assertIsNone(rep)                                # 沒有明確說不重複＝不算過
+            self.assertEqual(chat.call_count, 3)                  # 重問 3 次
+            self.assertIn("沒有回答", why)
+
+    def test_ai_repeat_names_post(self):
+        with mock.patch.object(fd, "_chat", return_value='{"repeat": true, "same_as": "#34", "reason": "都在講受潮"}'):
+            self.assertEqual(fd.dup_check(self.spec(), self.WATER, self.hist()), (True, "和 #34 重複：都在講受潮"))
+        with mock.patch.object(fd, "_chat", return_value='{"repeat": true, "same_as": "#999", "reason": "x"}'):
+            self.assertEqual(fd.dup_check(self.spec(), self.WATER, self.hist()), (True, "和 最近的貼文 重複：x"))
+
+    def test_chunks_until_repeat(self):
+        replies = iter(['{"repeat": false}', '{"repeat": true, "same_as": "#4", "reason": "同一件事"}', '{"repeat": false}'])
+        with mock.patch.object(fd, "_chat", side_effect=lambda *a, **k: next(replies)) as chat:
+            rep, why = fd.dup_check(self.spec(), self.WATER, self.hist(n=fd.DUP_CHUNK * 2 + 5))
+        self.assertTrue(rep)
+        self.assertEqual(chat.call_count, 2)                      # 找到重複就停
+        self.assertIn("#4", why)
+        with mock.patch.object(fd, "_chat", return_value='{"repeat": false}') as chat:
+            rep, why = fd.dup_check(self.spec(), self.WATER, self.hist(n=fd.DUP_CHUNK * 2 + 5))
+        self.assertIs(rep, False)
+        self.assertEqual(chat.call_count, 3)                      # 65 則分 3 批全部比過
+        self.assertIn("65 則", why)
+
+    def test_replacement(self):
+        rng = random.Random(1)
+        web = [{"id": 1, "title": "新文章", "summary": "", "url": SITE + "/column/n"}]
+        s = fd.replacement(self.spec(), self.D, set(), web, [], [], SITE, set(), rng)
+        self.assertEqual(s["topic_key"], "web:1")
+        s = fd.replacement(self.spec(), self.D, {"web:1"}, web, [], [], SITE, set(), rng)
+        self.assertEqual(s["category"], "tool")                   # 官網文章用完：改官網工具
+        s = fd.replacement({"category": "care", "topic_key": "care-wax"}, self.D, {"care-wax"}, [], [], [], SITE,
+                           {"care"}, rng)
+        self.assertEqual(s["category"], "care")
+        self.assertNotEqual(s["topic_key"], "care-wax")
+        cares = {t.key for t in fd.TOPICS if t.cat == "care"}
+        s = fd.replacement({"category": "care", "topic_key": "care-wax"}, self.D, cares, [], [], [], SITE,
+                           {"care"}, rng)
+        self.assertNotEqual(s["category"], "care")                # 同類別用完：換輪到的其他類別
+        self.assertIsNone(fd.replacement({"category": "season", "topic_key": "ev"}, self.D, set(), [], [], [], SITE,
+                                         set(), rng))
+        with mock.patch.object(fd, "_chat", return_value='{"score": 2, "repeat": false}'):
+            self.assertIsNone(fd.replacement({"category": "news", "topic_key": "news:x"}, self.D, set(), [], 
+                                             [news("聽損")], [], SITE, set(), rng))   # 新聞換不到：少一則
+
+    def test_write_checked_replaces_then_gives_up(self):
+        written, inserted = [], []
+
+        class Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        class Db(Cur):
+            def cursor(self): return Cur()
+
+        def fake_write(spec, store, site):
+            written.append(spec["topic_key"])
+            return {"message": spec["topic"], "seo": {}, "web_sync": False, "meta": "m"}
+
+        verdicts = iter([(True, "重複"), (False, "不重複")])
+        with mock.patch.object(fd, "_conn", return_value=Db()), \
+                mock.patch.object(fd, "dup_history", return_value=[]), \
+                mock.patch.object(fd, "write", side_effect=fake_write), \
+                mock.patch.object(fd, "dup_check", side_effect=lambda *a, **k: next(verdicts)), \
+                mock.patch.object(fd, "insert", side_effect=lambda cur, day, spec, res, by, **kw:
+                                  inserted.append((spec["topic_key"], res["meta"], kw)) or 99):
+            did = fd.write_checked(self.D, {"category": "care", "topic_key": "care-wax", "topic": "耳垢"},
+                                   {}, SITE, {"care-wax"}, rng=random.Random(2))
+        self.assertEqual(did, 99)
+        self.assertEqual(len(written), 2)                         # 第一次重複 → 換題重寫
+        self.assertNotEqual(written[1], "care-wax")
+        self.assertEqual(inserted[0][0], written[1])
+        self.assertIn(fd.DUP_MARK, inserted[0][1])                # 過關的才有查重記號
+
+        written.clear(); inserted.clear()
+        with mock.patch.object(fd, "_conn", return_value=Db()), \
+                mock.patch.object(fd, "dup_history", return_value=[]), \
+                mock.patch.object(fd, "write", side_effect=fake_write), \
+                mock.patch.object(fd, "dup_check", return_value=(True, "重複")), \
+                mock.patch.object(fd, "insert", side_effect=lambda *a, **k: inserted.append(a) or 1):
+            did = fd.write_checked(self.D, {"category": "care", "topic_key": "care-wax", "topic": "耳垢"},
+                                   {}, SITE, set(), rng=random.Random(2))
+        self.assertIsNone(did)                                     # 換了 DUP_TRIES 次還是重複：少一則
+        self.assertEqual(len(written), fd.DUP_TRIES + 1)
+        self.assertEqual(inserted, [])
+
+        with mock.patch.object(fd, "_conn", return_value=Db()), \
+                mock.patch.object(fd, "dup_history", return_value=[]), \
+                mock.patch.object(fd, "write", side_effect=fake_write), \
+                mock.patch.object(fd, "dup_check", return_value=(None, "本機 AI 查重沒有回答")), \
+                mock.patch.object(fd, "insert", side_effect=lambda cur, day, spec, res, by, **kw:
+                                  inserted.append((res["meta"], kw)) or 7):
+            did = fd.write_checked(self.D, {"category": "care", "topic_key": "care-wax", "topic": "耳垢"},
+                                   {}, SITE, set())
+        self.assertEqual(did, 7)
+        self.assertNotIn(fd.DUP_MARK, inserted[0][0])
+        self.assertEqual(inserted[0][1]["picked"], False)          # 查不出來：不勾、不自動發
+        self.assertIn("查重沒有回答", inserted[0][1]["error"])
+
+
+class DraftTime(unittest.TestCase):
+    """John 2026-11-15：GPU 早上給影片工作室，08:00 換回白天 Flash-Next，08:10 寫草稿；沒就緒就先等，最晚 09:00。"""
+    D = date(2026, 11, 16)
+
+    def test_start_and_wait(self):
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_at": "08:10", "draft_wait_until": "09:00"}):
+            self.assertEqual(fd.draft_start(self.D), datetime(2026, 11, 16, 8, 10))
+            self.assertEqual(fd.draft_wait_until(self.D), datetime(2026, 11, 16, 9, 0))
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_at": "", "draft_hour": 6}):
+            self.assertEqual(fd.draft_start(self.D), datetime(2026, 11, 16, 6, 0))   # 沒設 draft_at：舊的整點
+        with mock.patch.dict(fd.config.SOCIAL, {"draft_at": "8點10分", "draft_hour": 7}):
+            self.assertEqual(fd.draft_start(self.D), datetime(2026, 11, 16, 7, 0))   # 格式不對：退回整點
+
+    def test_llm_ready_reads_mode_file(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("night\n")
+        with mock.patch.object(fd, "LLM_MODE_FILE", f.name):
+            self.assertFalse(fd.llm_day_ready())                 # 夜班中／換回白天失敗：還沒就緒
+            open(f.name, "w").write("day\n")
+            self.assertTrue(fd.llm_day_ready())
+        with mock.patch.object(fd, "LLM_MODE_FILE", "/nonexistent/llm_mode"):
+            self.assertTrue(fd.llm_day_ready())                  # 從沒進過夜班＝白天
