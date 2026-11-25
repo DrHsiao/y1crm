@@ -2807,6 +2807,17 @@ uncertain(沒把握的欄位名陣列)"""
                 "statuses": web_admin.STATUSES, "site_url": site, "share_formats": web_admin.SHARE_FORMATS,
                 "share_platforms": platforms, "share_links": links, "art": review_art.enabled()}
 
+    @app.get("/api/web/clicks")
+    def web_clicks(request: Request):
+        """官網打電話／LINE／預約按鈕的點擊數（y1web 改善清單 D2，2026-11-25）。表還沒建就回全 0。"""
+        _require_menu(_current_user(request), "web")
+        try:
+            with _conn() as db, db.cursor() as cur:
+                return web_admin.get_clicks(cur, date.today())
+        except pymysql.MySQLError as e:
+            _wlog.warning("讀官網點擊數失敗：%s", e)
+            return web_admin.click_summary([], date.today())
+
     @app.put("/api/web/site")
     def web_site_update(request: Request, body: Dict[str, Any] = Body(...)):
         """官網網址（換網域時改這裡一次就好）。"""

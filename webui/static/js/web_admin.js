@@ -451,7 +451,7 @@ async function waEdit(id) {
   $("wa-meta").textContent = cur.id ? `最後修改：${DF.fromISODateTime(cur.updated_at)}　${cur.updated_by || ""}` : "";
   $("wa-err").classList.add("hidden");
   renderCover();
-  $("wa-list-card").classList.add("hidden");
+  $("wa-list-card").classList.add("hidden"); $("wa-clicks-card").classList.add("hidden");
   $("wa-editor").classList.remove("hidden");
   window.scrollTo(0, 0);
   dirty = false;
@@ -465,7 +465,7 @@ async function waClose() {
   if (!(await confirmLeave())) return;
   dirty = false;
   $("wa-editor").classList.add("hidden");
-  $("wa-list-card").classList.remove("hidden");
+  $("wa-list-card").classList.remove("hidden"); $("wa-clicks-card").classList.remove("hidden");
   await loadList();
 }
 
@@ -1092,4 +1092,25 @@ initHeader().then(async me => {
   setSeg("wa-kind", META.kinds[k] ? k : "about");
   await loadList();
   if (META.art) waArtPoll();                     // 有一批正在畫的話顯示進度
+  waClicks();
 }).catch(() => {});
+
+// 官網按鈕點擊數（2026-11-25 y1web 改善清單 D2）：/api/web/clicks
+const CLICK_PAGE_NAMES = { "/": "首頁", "/booking": "線上預約", "/home-visit": "到府服務", "/about": "關於我們", "/store": "服務據點",
+  "/services": "服務項目", "/products": "助聽器介紹", "/column": "聽力專欄", "/share": "好評分享", "/care": "使用小教室",
+  "/hearing-test": "聽力測驗", "/hearing-sim": "聽損模擬", "/subsidy": "補助小幫手", "/news": "最新消息", "/faq": "常見問題",
+  "/privacy": "隱私權政策", "/member": "會員" };
+async function waClicks() {
+  let d;
+  try { d = await api("/api/web/clicks"); } catch (e) { $("wa-clicks-sum").innerHTML = `<tr><td colspan="4">讀不到：${esc(e.message || e)}</td></tr>`; return; }
+  $("wa-clicks-sum").innerHTML = Object.entries(d.kinds).map(([k, label]) => {
+    const t = d.totals[k];
+    return `<tr><td>${esc(label)}</td><td>${t.today}</td><td>${t.week}</td><td>${t.month}</td></tr>`;
+  }).join("");
+  const site = (META && META.site_url) || "";
+  $("wa-clicks-pages").innerHTML = d.pages.length ? d.pages.map(p => {
+    const name = CLICK_PAGE_NAMES[p.page];
+    return `<tr><td><a href="${esc(site + p.page)}" target="_blank" rel="noopener">${esc(name ? name + "　" + p.page : p.page)}</a></td>` +
+      `<td>${p.tel}</td><td>${p.line}</td><td>${p.booking}</td><td><b>${p.total}</b></td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="lh">還沒有紀錄（2026-11-25 開始記）</td></tr>`;
+}

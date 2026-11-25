@@ -459,3 +459,28 @@ class ReviewHtml(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClickSummary(unittest.TestCase):
+    """官網按鈕點擊數（y1web 改善清單 D2，2026-11-25）。"""
+    def test_spans_and_pages(self):
+        from datetime import date
+        T = date(2026, 11, 25)
+        rows = [{"day": T, "kind": "tel", "page": "/", "n": 2},
+                {"day": date(2026, 11, 20), "kind": "tel", "page": "/store", "n": 3},       # 近 7 天內
+                {"day": date(2026, 11, 18), "kind": "line", "page": "/", "n": 4},           # 7 天外、30 天內
+                {"day": date(2026, 10, 27), "kind": "booking", "page": "/", "n": 1},        # 第 30 天（含今天往回數）
+                {"day": date(2026, 10, 26), "kind": "booking", "page": "/", "n": 9},        # 第 31 天：不算
+                {"day": T, "kind": "map", "page": "/", "n": 5}]                              # 不認得的種類：不算
+        s = wa.click_summary(rows, T)
+        self.assertEqual(s["totals"]["tel"], {"today": 2, "week": 5, "month": 5})
+        self.assertEqual(s["totals"]["line"], {"today": 0, "week": 0, "month": 4})
+        self.assertEqual(s["totals"]["booking"], {"today": 0, "week": 0, "month": 1})
+        self.assertEqual([p["page"] for p in s["pages"]], ["/", "/store"])
+        self.assertEqual(s["pages"][0], {"page": "/", "tel": 2, "line": 4, "booking": 1, "total": 7})
+
+    def test_empty(self):
+        from datetime import date
+        s = wa.click_summary([], date(2026, 11, 25))
+        self.assertEqual(s["pages"], [])
+        self.assertEqual(set(s["totals"]), set(wa.CLICK_KINDS))

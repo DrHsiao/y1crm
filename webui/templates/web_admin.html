@@ -34,6 +34,20 @@
     <p class="hint" style="margin-top:.8rem;" id="wa-hint"></p>
   </div>
 
+  <!-- 官網按鈕點擊數（2026-11-25 y1web 改善清單 D2；資料 y1web.web_clicks，只有次數）-->
+  <div class="card" id="wa-clicks-card">
+    <div class="section-row" style="margin-bottom:.6rem;">
+      <h3 style="flex:1;">官網按鈕點擊<span class="lh">客人在官網上按「打電話」「LINE」「預約」的次數；只有次數，不知道是誰</span></h3>
+      <button type="button" class="btn sm ghost" onclick="waClicks()">重新整理</button>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>按鈕</th><th>今天</th><th>近 7 天</th><th>近 30 天</th></tr></thead>
+      <tbody id="wa-clicks-sum"></tbody></table></div>
+    <h4 style="margin:1rem 0 .4rem;">近 30 天在哪一頁按的</h4>
+    <div class="table-wrap"><table><thead><tr><th>頁面</th><th>打電話</th><th>LINE</th><th>預約</th><th>合計</th></tr></thead>
+      <tbody id="wa-clicks-pages"></tbody></table></div>
+    <p class="hint" style="margin-top:.8rem;">瀏覽量（每天多少人來、看了哪些頁、從哪裡連過來、手機還是電腦）在 Cloudflare 後台：選 y1ear.com →「Analytics &amp; Logs」→「Web Analytics」。</p>
+  </div>
+
   <div class="card hidden" id="wa-editor">
     <div class="section-row" style="margin-bottom:.8rem;">
       <h3 style="flex:1;" id="wa-ed-title">編輯</h3>

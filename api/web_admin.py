@@ -1022,3 +1022,35 @@ def remove_if_unused(cur, media_dir: Path, name: Optional[str]) -> None:
     for path in (image_path(media_dir, name), thumb_path(media_dir, name)):
         if path and path.exists():
             path.unlink()
+
+
+# ── 官網按鈕點擊數（2026-11-25 y1web 改善清單 D2）──────────────────────────────
+#   y1web 的 app/clicks.py 寫 y1web.web_clicks（每天 × 種類 × 在哪一頁按的，只有次數）；這裡讀出來給官網管理看。
+#   種類與 y1web app/clicks.KINDS 相同，要一起改。
+CLICK_KINDS = {"tel": "打電話", "line": "LINE", "booking": "預約"}
+CLICK_DAYS = 30
+
+
+def click_summary(rows: List[Dict[str, Any]], today: date, days: int = CLICK_DAYS, top: int = 10) -> Dict[str, Any]:
+    """rows：web_clicks 的 day、kind、page、n。回：各種類今天／近 7 天／近 days 天的次數，和近 days 天按最多的頁面。"""
+    spans = {"today": today, "week": today - timedelta(days=6), "month": today - timedelta(days=days - 1)}
+    totals = {k: {s: 0 for s in spans} for k in CLICK_KINDS}
+    pages: Dict[str, Dict[str, int]] = {}
+    for r in rows:
+        k, d, n = r["kind"], r["day"], int(r["n"] or 0)
+        if k not in CLICK_KINDS or d < spans["month"] or d > today:
+            continue
+        for s, start in spans.items():
+            if d >= start:
+                totals[k][s] += n
+        p = pages.setdefault(r["page"], {kk: 0 for kk in CLICK_KINDS})
+        p[k] += n
+    ranked = sorted(pages.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))[:top]
+    return {"kinds": CLICK_KINDS, "days": days, "totals": totals,
+            "pages": [{"page": p, **c, "total": sum(c.values())} for p, c in ranked]}
+
+
+def get_clicks(cur, today: date) -> Dict[str, Any]:
+    cur.execute("SELECT day, kind, page, n FROM y1web.web_clicks WHERE day >= %s",
+                (today - timedelta(days=CLICK_DAYS - 1),))
+    return click_summary(list(cur.fetchall()), today)
