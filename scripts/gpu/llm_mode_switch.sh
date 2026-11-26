@@ -12,7 +12,7 @@
 #   FN_CTX    每槽上下文（預設 8192；所有呼叫端都傳 8192，不同會逼 ollama 重載整顆 120GB）
 #   FN_EXTRA  額外 llama-server 參數（經包裝程式附加）。預設＝11-12 實測最佳：
 #             -lzm off -lm mlock：35GB 逐層 N-gram 詞表常駐並鎖在主記憶體（隨用隨讀只有 34～38 t/s，鎖定 48 t/s）
-#             -ts 30,35,35：減輕 5717（CUDA0，冷排沒風扇）的份量
+#             -ts 30,35,35：減輕 5717（CUDA0）的份量（11-12 訂的，當時冷排沒風扇；11-14 裝了風扇，比例還沒重新評估）
 #             設成空字串＝不掛包裝程式、用 ollama 預設配置
 # ⚠ workspace/docker-compose.yml 仍定義三個舊容器；flashnext 模式下不要 `docker compose up -d`（會搶埠）。
 set -euo pipefail
