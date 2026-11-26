@@ -56,7 +56,8 @@
 - 智能試停：**2026-11-26 已關閉**（`PROBE_ENABLE = False`），泵閒置固定 30%。11-11～11-26 試 70 次、成功 0 次（卡被程式佔著、P0 ~36W，停泵 4～8 秒就升 3～7°C）；而且有 3 次（11-13、11-23、11-24）停泵後恢復 30% 泵沒轉起來，6 秒後被停轉偵測拉全速才救回，發出了停轉推播。
   原本的規則：30% 檔＋`max(GPU,HBM)` ≤45°C＋功耗 <60W 穩定 10 分鐘才試停；停泵後升 3°C 或功耗 ≥60W 就恢復 30%；停滿 60 秒沒升溫＝成功；失敗則 30 分→1→2→4 小時（封頂）再試。**重新打開前**要先把恢復改成「全速衝 1～2 輪再降回 30%」。
 - 功耗：GPU 78／HBM 82°C → 200W；GPU 82／HBM 84°C → 150W；兩者 ≤70／75°C 穩定 60 秒才逐級恢復。
-- 推播（旗標 `/tmp/watercool_alert` → ops healthcheck，狀態改變才推）：泵停轉、150W 仍過熱 60 秒、無法控制泵 60 秒。其餘只記 `/mnt/raid1/monitoring/watercool_guard.log`（事件＋每小時一行）。
+- 推播（旗標 `/tmp/watercool_alert` → ops healthcheck，狀態改變才推）：泵停轉、150W 仍過熱 60 秒、無法控制泵 60 秒。
+  - **泵停轉另由守衛直接推**（2026-11-26 起，`DIRECT_PUSH`）：停轉約 6 秒內發 🔴、恢復穩定 2 分鐘發 🟢；走 `ops/notify.py`、背景執行緒送，開機網路還沒好就每 30 秒補送（最多 10 分鐘，之後留佇列給 healthcheck）。起因：11-26 15:02 開機線沒接好、泵 0 rpm 5 分鐘、閒置升到 82°C，healthcheck 每 10 分鐘才跑、那次開機沒撐到它跑，一則都沒發。停轉超過 10 分鐘 healthcheck 會再推一次（＝還沒修好的提醒）。其餘只記 `/mnt/raid1/monitoring/watercool_guard.log`（事件＋每小時一行）。
 - 看狀態：`sudo python3 scripts/gpu/watercool_guard.py --status`
 - 與 `gpu_thermal_guard.py` 分工：水冷守衛心跳（`/run/watercool_guard.json`）新鮮時，溫控守護不碰 5717 的功耗；心跳停 30 秒就接手。
 - 停止或當掉時泵自動回 BIOS 全速（`ExecStopPost=--restore`）。若停止時正在降功耗，上限會留在 200／150W，log 的 `STOP` 那行會寫。

@@ -13,6 +13,9 @@
 - 泵：閒置 30%；溫度或功耗上來才加速。加速立即、降速慢慢來（避免忽快忽慢）。
 - 智能試停：2026-11-26 關閉（PROBE_ENABLE=False，原因見該段註解），泵閒置固定 30%。
 - 推播：只在需要人處理時立旗標 /tmp/watercool_alert，由 ops healthcheck 推（狀態改變才推一次）。
+  泵停轉另外由守衛**直接推**（2026-11-26：11-26 15:02 開機線沒接好、泵 0 rpm 5 分鐘、閒置爬到 82°C，
+  healthcheck 每 10 分鐘才跑一次，那次開機沒撐到它跑就關機了，一則都沒發出）。
+  背景執行緒送（不擋控制迴圈）；開機網路還沒好送不出去就每 30 秒補送，最多 10 分鐘。
 - log：只記事件＋每小時一行摘要。
 
 安全退路：守衛停止／當掉 → 泵回 BIOS 全速（SIGTERM 處理＋systemd ExecStopPost --restore）。
@@ -31,9 +34,11 @@ import glob
 import json
 import math
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -95,6 +100,12 @@ ALERT_TEXT = {
     "hot": "已降到最低功耗 150W 仍過熱",
     "pump_ctl": "守衛無法讀寫水泵（nct6775 驅動？），泵維持 BIOS 全速但沒有停轉偵測",
 }
+
+# ── 直接推播（不等 healthcheck）──────────────────────────────────────────
+DIRECT_PUSH = {"stall"}     # 這些一發生／恢復就由守衛自己推
+OPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ops")   # notify.py 在這
+PUSH_RETRY_S = 30           # 送不出去（開機網路還沒好）每 30 秒補送一次
+PUSH_RETRY_N = 20           # 最多 10 分鐘；之後留在 notify 佇列，由 healthcheck 每輪補送
 
 
 def log(line: str):
@@ -413,6 +424,64 @@ def write_json_atomic(path, obj):
     os.replace(tmp, path)
 
 
+class Pusher:
+    """直接推播：單一背景執行緒依序送，Telegram 慢或不通都不會卡住 2 秒的控制迴圈。"""
+
+    def __init__(self, notify_mod=None):
+        self.q = queue.Queue()
+        self.notify = notify_mod             # 測試可注入；None＝第一次送時才 import ops/notify.py
+        threading.Thread(target=self._worker, name="pusher", daemon=True).start()
+
+    def send(self, text: str):
+        self.q.put(text)
+
+    def _mod(self):
+        if self.notify is None:
+            if OPS_DIR not in sys.path:
+                sys.path.insert(0, OPS_DIR)
+            import notify                    # noqa: E402 — 延後 import：notify 壞了也不影響泵控制
+            self.notify = notify
+        return self.notify
+
+    def _worker(self):
+        while True:
+            text = self.q.get()
+            head = text.splitlines()[0]
+            try:
+                n = self._mod()
+                if n.send(text):
+                    log(f"PUSH_SENT {head}")
+                    continue
+                log(f"PUSH_QUEUED {head}（送不出去，每 {PUSH_RETRY_S} 秒補送）")
+                for _ in range(PUSH_RETRY_N):
+                    time.sleep(PUSH_RETRY_S)
+                    if n.flush() == 0:
+                        log(f"PUSH_SENT {head}（補送成功）")
+                        break
+                else:
+                    log(f"PUSH_GAVE_UP {head}（{PUSH_RETRY_S * PUSH_RETRY_N // 60} 分鐘仍送不出去，"
+                        "留在佇列由 healthcheck 補送）")
+            except Exception as e:           # noqa: BLE001 — 推播失敗只記 log，守衛照跑
+                log(f"PUSH_FAILED {head}：{type(e).__name__}: {e}")
+
+
+def push_text(key, on, r, rpm, since, now):
+    snap = f"GPU {r['gpu']}°C／HBM {r['hbm']}°C／{r['power']:.0f}W" if r else "讀不到 GPU 溫度"
+    clock = datetime.fromtimestamp(now).strftime("%H:%M:%S")
+    if on:
+        return (f"🔴 5717 {ALERT_TEXT[key]}\n"
+                f"{clock} 轉速 {rpm} rpm｜{snap}\n"
+                "泵不轉時閒置也會每分鐘升約 7°C（11-26 實測），請檢查泵的線與電源；"
+                "85°C 以上請先關機")
+    # 恢復要穩定 ALERT_CLEAR_S 才算，所以實際停轉時間＝推播間隔扣掉這段
+    hold = f"已穩定轉 {ALERT_CLEAR_S // 60} 分鐘"
+    if since:
+        s = max(0, now - since - ALERT_CLEAR_S)
+        hold = f"停轉約 {s:.0f} 秒" if s < 90 else f"停轉約 {s / 60:.0f} 分鐘"
+        hold += f"，恢復後已穩定轉 {ALERT_CLEAR_S // 60} 分鐘"
+    return f"🟢 5717 水泵恢復轉動\n{clock} 轉速 {rpm} rpm｜{snap}\n{hold}"
+
+
 def update_flag(ctl: Controller):
     try:
         if ctl.alert_on:
@@ -443,6 +512,8 @@ def run():
     pl_err = False
     last_applied = None
     flag_keys = None
+    pusher = Pusher()
+    alert_t0 = {}                    # 直接推播項目 → 發生時間（恢復時算持續多久）
     stats, stats_t0 = {}, time.time()
     log(f"START 泵 SYS_FAN1(pwm{CH}) 先全速、穩定後降到 {DUTY_QUIET}%；功耗保護 {L1}/{L2} → "
         f"{LIMIT_W[1]}/{LIMIT_W[2]}W")
@@ -502,7 +573,13 @@ def run():
             log(e + snap + (f" 轉速 {rpm}" if rpm is not None else ""))
         if set(ctl.alert_on) != flag_keys:                 # 只在推播項目改變時重寫旗標
             update_flag(ctl)
-            flag_keys = set(ctl.alert_on)
+            prev, cur = flag_keys or set(), set(ctl.alert_on)
+            for k in sorted((cur - prev) & DIRECT_PUSH):
+                alert_t0[k] = t0
+                pusher.send(push_text(k, True, r, rpm, None, t0))
+            for k in sorted((prev - cur) & DIRECT_PUSH):
+                pusher.send(push_text(k, False, r, rpm, alert_t0.pop(k, None), t0))
+            flag_keys = cur
 
         # 心跳／狀態（gpu_thermal_guard 看這個決定要不要碰 5717 的功耗）
         status = {"ts": t0, "time": datetime.now().isoformat(timespec="seconds"),
