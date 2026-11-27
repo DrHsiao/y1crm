@@ -583,20 +583,45 @@ class Dup(unittest.TestCase):
         self.assertEqual(did, 99)
         self.assertEqual(len(written), 2)                         # 第一次重複 → 換題重寫
         self.assertNotEqual(written[1], "care-wax")
-        self.assertEqual(inserted[0][0], written[1])
-        self.assertIn(fd.DUP_MARK, inserted[0][1])                # 過關的才有查重記號
+        # John 2026-11-27：被判重複的也記成用過 → 存一筆丟掉的（題目 90 天內不再出）
+        self.assertEqual(inserted[0][0], "care-wax")
+        self.assertEqual(inserted[0][2]["status"], "discarded")
+        self.assertIs(inserted[0][2]["picked"], False)
+        self.assertTrue(inserted[0][2]["error"].startswith(fd.DUP_DROP + "已換題"))
+        self.assertNotIn(fd.DUP_MARK, inserted[0][1])
+        self.assertEqual(inserted[1][0], written[1])
+        self.assertIn(fd.DUP_MARK, inserted[1][1])                # 過關的才有查重記號
+        self.assertNotIn("status", inserted[1][2])                # 過關的照常是 new
 
         written.clear(); inserted.clear()
         with mock.patch.object(fd, "_conn", return_value=Db()), \
                 mock.patch.object(fd, "dup_history", return_value=[]), \
                 mock.patch.object(fd, "write", side_effect=fake_write), \
                 mock.patch.object(fd, "dup_check", return_value=(True, "重複")), \
-                mock.patch.object(fd, "insert", side_effect=lambda *a, **k: inserted.append(a) or 1):
+                mock.patch.object(fd, "insert", side_effect=lambda cur, day, spec, res, by, **kw:
+                                  inserted.append((spec["topic_key"], kw)) or 1):
             did = fd.write_checked(self.D, {"category": "care", "topic_key": "care-wax", "topic": "耳垢"},
                                    {}, SITE, set(), rng=random.Random(2))
         self.assertIsNone(did)                                     # 換了 DUP_TRIES 次還是重複：少一則
         self.assertEqual(len(written), fd.DUP_TRIES + 1)
-        self.assertEqual(inserted, [])
+        self.assertEqual([k for k, _ in inserted], written)        # 每一題都記成用過
+        self.assertTrue(all(kw["status"] == "discarded" and kw["error"].startswith(fd.DUP_DROP) for _, kw in inserted))
+        self.assertIn(f"換了 {fd.DUP_TRIES} 次都重複", inserted[-1][1]["error"])
+
+        written.clear(); inserted.clear()                          # 這一格沒有別題可換：也要記成用過
+        with mock.patch.object(fd, "_conn", return_value=Db()), \
+                mock.patch.object(fd, "dup_history", return_value=[]), \
+                mock.patch.object(fd, "write", side_effect=fake_write), \
+                mock.patch.object(fd, "dup_check", return_value=(True, "重複")), \
+                mock.patch.object(fd, "insert", side_effect=lambda cur, day, spec, res, by, **kw:
+                                  inserted.append((spec["topic_key"], kw)) or 1):
+            did = fd.write_checked(self.D, {"category": "season", "topic_key": "ev:newyear:2027", "topic": "新年"},
+                                   {}, SITE, set())
+        self.assertIsNone(did)
+        self.assertEqual([k for k, _ in inserted], ["ev:newyear:2027"])
+        self.assertIn("沒有別題可換", inserted[0][1]["error"])
+
+        inserted.clear()
 
         with mock.patch.object(fd, "_conn", return_value=Db()), \
                 mock.patch.object(fd, "dup_history", return_value=[]), \
@@ -610,6 +635,27 @@ class Dup(unittest.TestCase):
         self.assertNotIn(fd.DUP_MARK, inserted[0][0])
         self.assertEqual(inserted[0][1]["picked"], False)          # 查不出來：不勾、不自動發
         self.assertIn("查重沒有回答", inserted[0][1]["error"])
+
+
+    def test_rerun_after_all_dup_picks_other_topics(self):
+        """11-27：整批重複 → 三次重試都重選同一批。重複的記成用過之後，重試會換別題。"""
+        used = {"care-wax", "fam-face"}
+        a = fd.plan(self.D, 2, used, [], [], SITE, rng=random.Random(self.D.toordinal()), fresh_only=True)
+        used |= {s["topic_key"] for s in a}                       # 第一次寫的都被判重複、記成用過
+        b = fd.plan(self.D, 2, used, [], [], SITE, rng=random.Random(self.D.toordinal()), fresh_only=True)
+        self.assertTrue(b)
+        self.assertFalse({s["topic_key"] for s in a} & {s["topic_key"] for s in b})
+
+    def test_day_written_ignores_dup_drops(self):
+        class Cur:
+            def execute(self, sql, args):
+                self.sql, self.args = sql, args
+            def fetchone(self):
+                return None
+        cur = Cur()
+        self.assertFalse(fd.day_written(cur, self.D))
+        self.assertIn("NOT (status='discarded' AND error LIKE %s)", cur.sql)
+        self.assertEqual(cur.args, (self.D, fd.DUP_DROP + "%"))
 
 
 class DraftTime(unittest.TestCase):

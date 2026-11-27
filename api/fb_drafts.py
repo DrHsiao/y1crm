@@ -21,6 +21,8 @@ John 2026-11-08：「本機 AI 建立 FB 貼文……先從貼文開始，每天
   自動發佈只發「完全沒有錯誤和提醒」的。
 John 2026-11-15：週六日不寫不發（skip_weekdays）；沒有合適新聞的那天少一則；寫完由本機 AI 和最近 90 天比對，
 重複的換題重寫，沒通過查重的不自動發（見「查重」一節）。
+John 2026-11-27：被判重複的題目也記成用過（存一筆 discarded，畫面不列），重試或隔天就會換別題；
+當天只寫出重複的，排程照樣算「還沒寫」、15 分鐘後再試（最多 3 次）。
 配圖（api/post_art.py）：寫好就從圖庫挑一張真實照片；有圖的發成相片貼文（連結寫進文字），同步專欄時當封面。
 """
 from __future__ import annotations
@@ -99,6 +101,9 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("care-humid", "care", "梅雨季、春天比較潮濕，乾燥盒每天都要用，乾燥劑變色了就要更換", months=(3, 4, 5, 6)),
     Topic("care-sweat", "care", "夏天流汗多，汗水會跑進助聽器：運動後擦乾，晚上一定要除濕；戲水、泡溫泉前先拿下來",
           months=(6, 7, 8, 9)),
+    # John 2026-11-27 補題（題庫沒用過的都被判重複、當天 0 則）：寫進來前先用 dup_check 拿題材和最近 90 天比過
+    Topic("care-cosmetic", "care", "擦乳液、防曬、噴髮膠或化妝的時候，先把助聽器拿下來，弄好、把手擦乾淨再戴上"),
+    Topic("care-sitdown", "care", "戴上或拿下助聽器時，坐在桌前或床邊操作，萬一手滑掉下去，也不會直接摔到硬地板上"),
     # 聽力保健
     # John 2026-11-22：#50「追劇音量不知不覺轉大？」（年輕人戴耳機的近照）瀏覽、心情最多 →「這種類型的主題搭配這種風格的
     # 模特能抓到群眾，就儘量跟著人流走」→ 耳機／3C／年輕人題目設 hot（配圖：圖庫裡同一位模特兒的照片會被耳機等標籤挑到）
@@ -125,6 +130,16 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("hl-firststep", "health", "覺得聽不清楚，第一步先到耳鼻喉科檢查原因，之後再和聽力專業人員討論需不需要助聽器"),
     Topic("hl-highfreq", "health", "為什麼「聽得到、聽不清楚」：很多人是高頻的聲音先變弱，ㄙ、ㄕ、ㄘ、ㄑ 這些音最容易聽錯"),
     Topic("hl-adapt", "health", "剛開始戴助聽器要有適應期：前幾週逐步拉長配戴時間，有不舒服就回門市微調"),
+    # John 2026-11-27 補題（題庫沒用過的都被判重複、當天 0 則）：寫進來前先用 dup_check 拿題材和最近 90 天比過
+    Topic("hl-testday", "health", "第一次做聽力檢查會做什麼：在安靜的隔音室戴上耳機，聽到聲音就按按鈕或舉手；不會痛，"
+          "可以請家人陪同"),
+    Topic("hl-oneside", "health", "一邊耳朵聽得比較清楚、另一邊比較差：講電話總是換到同一邊、分不太出聲音從哪裡來；"
+          "兩耳都要請耳鼻喉科或聽力專業人員檢查"),
+    Topic("hl-flight", "health", "搭飛機起降時耳朵悶、痛：可以吞口水、打哈欠或嚼口香糖；下飛機一段時間還是悶塞、聽不清楚，"
+          "請看耳鼻喉科"),
+    Topic("hl-newborn", "health", "家裡有新生兒：出生後的新生兒聽力篩檢記得要做，結果有疑問就請教小兒科或耳鼻喉科醫師"),
+    Topic("hl-kids", "health", "孩子叫名字常常沒反應、看電視越坐越近、說話發音不太清楚，可以帶去耳鼻喉科檢查聽力"),
+    Topic("hl-medicine", "health", "正在吃藥的人覺得聽力或耳鳴有變化，先問開藥的醫師或藥師，不要自己停藥或換藥"),
     # 家人溝通
     Topic("fam-face", "family", "和聽力不好的家人說話：先叫名字、面對面、說慢一點、咬字清楚，不用大吼"),
     Topic("fam-restaurant", "family", "家族聚餐選位子：讓長輩背對吵雜的地方、坐靠牆或角落，大家輪流說話"),
@@ -135,6 +150,18 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("fam-reluctant", "family", "長輩不想戴助聽器的心情：不要說「你耳背」，先陪他去做一次聽力檢查，多一點耐心和鼓勵"),
     Topic("fam-tap", "family", "叫長輩之前，先走到他面前或輕拍肩膀，不要從背後突然說話"),
     Topic("fam-group", "family", "多人聊天時，一次一個人說；要換話題時先提一下，聽力不好的人比較跟得上"),
+    # John 2026-11-27 補題（題庫沒用過的都被判重複、當天 0 則）：寫進來前先用 dup_check 拿題材和最近 90 天比過
+    Topic("fam-write", "family", "重要的事改用文字：約好的時間地點、要帶的東西，用 LINE 或紙條寫給長輩，"
+          "比只說一次更不怕漏聽、聽錯"),
+    Topic("fam-doctor", "family", "陪長輩看醫生：讓長輩坐在醫師正對面，醫師交代的重點（吃藥時間、下次回診）"
+          "離開診間前再和長輩一起確認一次"),
+    Topic("fam-car", "family", "在車上聊天最難聽清楚：引擎聲、路上的噪音，又看不到臉；重要的事等停好車再說，開車的人也比較專心"),
+    Topic("fam-dontskip", "family", "長輩聽錯或沒聽懂的時候，不要說「算了、沒事」：被跳過的感覺會讓人越來越不想加入聊天，"
+          "讓長輩一起參與"),
+    Topic("fam-outing", "family", "陪長輩到銀行、郵局、區公所辦事：叫號廣播常常聽不清楚，幫忙留意螢幕上的號碼，"
+          "櫃台說明可以請對方說慢一點"),
+    Topic("fam-quiet", "family", "要和長輩好好聊天之前，先把電視、收音機轉小聲或關掉，背景聲音少了，對方比較跟得上"),
+    Topic("fam-notes", "family", "家人剛開始戴助聽器的那幾週，陪他記下哪些場合聽得清楚、哪些覺得不舒服，回門市調整時比較好說明"),
     # 互動提問（短、邀請留言）
     Topic("ask-tv", "ask", "問大家：家裡長輩看電視，音量通常開到幾格？"),
     Topic("ask-sound", "ask", "問大家：你最喜歡、最想一直聽到的聲音是什麼？例如孫子的笑聲、鳥叫、雨聲"),
@@ -142,6 +169,11 @@ TOPICS: Tuple[Topic, ...] = (
     Topic("ask-noise", "ask", "問大家：出去吃飯，最怕哪一種吵？"),
     Topic("ask-myth", "ask", "是非題：用棉花棒每天掏耳朵比較乾淨，對不對？請大家在留言猜，答案晚點公布"),
     Topic("ask-buds", "ask", "問大家：你平常戴耳機聽音樂、追劇，音量大概開到幾格？", hot=True),
+    # John 2026-11-27 補題（題庫沒用過的都被判重複、當天 0 則）：寫進來前先用 dup_check 拿題材和最近 90 天比過
+    Topic("ask-lasttest", "ask", "問大家：你或家裡長輩，上一次做聽力檢查是什麼時候？"),
+    Topic("ask-myth-age", "ask", "是非題：只有年紀大的人聽力才會變差，對不對？請大家在留言猜，答案晚點公布"),
+    Topic("ask-hobby", "ask", "問大家：家裡長輩最近最喜歡做什麼？聽廣播、唱歌、跳舞、追劇，還是種花？"),
+    Topic("ask-call", "ask", "問大家：你多久打一次電話或視訊給爸媽？都聊些什麼？"),
     # 官網工具（附連結）
     Topic("tool-test", "tool", "官網的「線上聽力小測驗」：戴耳機在安靜的地方做，幾分鐘就好；只是自我檢測、不是診斷，"
           "結果僅供參考", path="/hearing-test"),
@@ -941,18 +973,27 @@ def web_items(cur, site: str) -> List[Dict[str, Any]]:
 
 
 def insert(cur, day: date, spec: Dict[str, Any], res: Dict[str, Any], by: Optional[str],
-           picked: Optional[bool] = None, error: Optional[str] = None) -> int:
+           picked: Optional[bool] = None, error: Optional[str] = None, status: str = "new") -> int:
     """by＝None 是每日排程寫的：預設勾選（到時間沒取消就自動發）；管理者自己按「多寫一則」的不預設勾。
-    picked／error：查重沒做完的，不勾、把原因寫進 error 給人看。"""
+    picked／error：查重沒做完的，不勾、把原因寫進 error 給人看。
+    status＝discarded：查重判定重複的也留一筆，題目才會記成用過（used_keys 不看 status），畫面上不列。"""
     cur.execute("INSERT INTO fb_post_drafts (day, category, topic_key, topic, brief, link, web_post_id, "
-                "source_name, source_url, message, seo, web_sync, picked, meta, error, created_by) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "source_name, source_url, message, seo, web_sync, picked, meta, error, created_by, status) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (day, spec["category"], spec["topic_key"], spec["topic"], spec["brief"][:2000],
                  spec.get("link"), spec.get("web_post_id"), spec.get("source_name"), spec.get("source_url"),
                  res["message"], json.dumps(res["seo"], ensure_ascii=False), int(res["web_sync"]),
                  int(by is None if picked is None else picked), res["meta"][:255],
-                 error[:255] if error else None, by))
+                 error[:255] if error else None, by, status))
     return cur.lastrowid
+
+
+def day_written(cur, day: date) -> bool:
+    """當天的每日草稿寫過了沒（排程靠這個決定要不要再試）。查重判定重複、丟掉的那幾筆不算：
+    整批都重複的話，下一次重試會因為那些題目已經記成用過而換別題（John 2026-11-27）。"""
+    cur.execute("SELECT 1 FROM fb_post_drafts WHERE day=%s AND created_by IS NULL "
+                "AND NOT (status='discarded' AND error LIKE %s) LIMIT 1", (day, DUP_DROP + "%"))
+    return cur.fetchone() is not None
 
 
 # ── 查重（John 2026-11-15：「生成後檢查 60 日（3 個月內）重複的內容請換掉，請本機 AI 確實做到」）──
@@ -966,6 +1007,7 @@ DUP_CHUNK = 30               # 一次給 AI 看幾則舊貼文（num_ctx 8192＋
 DUP_TRIES = 3
 DUP_SIM_HARD = 0.5           # 字面相似度（兩字一組的重疊比例）到這裡，不用問 AI 就算重複
 DUP_MARK = "查重✓"
+DUP_DROP = "重複，"           # 查重判定重複、丟掉的草稿：error 用這個開頭（day_written 靠它分辨）
 NEWS_REPLACE_TRIES = 5
 DUP_PROMPT = """你是助聽器門市粉專的編輯。粉專不想讓讀者覺得「這個前陣子才講過」。
 下面是一則準備要發的新貼文，以及粉專最近三個月已經發過、或已經排好要發的貼文（編號、日期、類別、標題｜開頭）。
@@ -1120,14 +1162,19 @@ def write_checked(day: date, spec: Dict[str, Any], store: Dict[str, Any], site: 
             log.warning("粉專草稿 #%s 查重沒做完，不自動發：%s", did, why)
             cats_today.add(spec["category"])
             return did
-        log.info("粉專草稿重複，換題（第 %d 次）：%s %s「%s」— %s", attempt + 1, spec["category"],
+        last = attempt == DUP_TRIES
+        nxt = None if last else replacement(spec, day, taken, webs, news_left, topics, site, cats_today, rng)
+        note = "已換題" if nxt else f"換了 {DUP_TRIES} 次都重複" if last else "這一格沒有別題可換"
+        # John 2026-11-27：「被判重複的題目也記成用過，下次就會換別題」→ 留一筆丟掉的（畫面不列），
+        # 90 天內 used_keys 就不會再挑它。11-27 沒存：三次重試都重選同一批、全部重複，當天 0 則。
+        with _conn() as db, db.cursor() as cur:
+            insert(cur, day, spec, res, None, picked=False, status="discarded", error=f"{DUP_DROP}{note}：{why}")
+        log.info("粉專草稿重複，記成用過、%s（第 %d 次）：%s %s「%s」— %s", note, attempt + 1, spec["category"],
                  spec["topic_key"], spec["topic"][:30], why)
-        nxt = replacement(spec, day, taken, webs, news_left, topics, site, cats_today, rng)
         if nxt is None:
-            log.info("粉專草稿：%s 這一格換不到不重複的題目，當天少一則", spec["category"])
+            log.info("粉專草稿：%s 這一格%s，當天少一則", spec["category"], note)
             return None
         spec = nxt
-    log.info("粉專草稿：換了 %d 次還是重複，當天少一則", DUP_TRIES)
     return None
 
 
@@ -1162,7 +1209,7 @@ def recheck_day(day: date) -> Dict[str, Any]:
             continue
         with _conn() as db, db.cursor() as cur:
             cur.execute("UPDATE fb_post_drafts SET status='discarded', picked=0, error=%s WHERE id=%s AND status='new'",
-                        (f"重複，已換題：{why}"[:255], r["id"]))
+                        (f"{DUP_DROP}已換題：{why}"[:255], r["id"]))
         batch.remove(r["id"])
         cats_today.discard(r["category"])
         log.info("粉專草稿 #%s 重複、丟掉換題：%s", r["id"], why)
@@ -1196,8 +1243,7 @@ def _run_daily(day: Optional[date], n: Optional[int]) -> int:
     n = int(n or _cfg("draft_count", 3))
     with _run_lock:
         with _conn() as db, db.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM fb_post_drafts WHERE day=%s AND created_by IS NULL", (day,))
-            if cur.fetchone()["c"]:
+            if day_written(cur, day):
                 return 0
             used, recent = used_keys(cur, day), recent_sources(cur, day)
             store, site = store_info(cur), site_url(cur)
@@ -1485,8 +1531,7 @@ def start_scheduler() -> None:
                     continue
                 if now >= draft_start(d) and tries.get(d, 0) < 3 and time.time() - last_try > 900:
                     with _conn() as db, db.cursor() as cur:
-                        cur.execute("SELECT 1 FROM fb_post_drafts WHERE day=%s AND created_by IS NULL LIMIT 1", (d,))
-                        done = cur.fetchone() is not None
+                        done = day_written(cur, d)
                     ready = llm_day_ready()
                     if not done and not ready and now < draft_wait_until(d):
                         if waiting != d:
